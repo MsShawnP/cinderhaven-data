@@ -33,14 +33,23 @@ Run in order. Scripts 01–04b can run in any order relative to each other. Scri
 
 | Script | Purpose |
 |---|---|
-| `defect_profile.py` | Defines the data-quality defect types baked into `product_master` |
+| `build_db.py` | Orchestrates the full generation pipeline in order |
+| `seed_product_master.sql` | Seeds the `product_master` table with 90 SKUs including deliberate data-quality defects |
 | `01_generate_stores.py` | Builds the store/door list |
 | `02_generate_distribution.py` | Creates SKU × store authorization history |
+| `02b_generate_chargebacks.py` | Generates defect-driven chargebacks traceable to `product_master` data-quality issues |
 | `03_generate_costs.py` | Generates COGS, wholesale prices, trade spend rates |
 | `04_generate_promos.py` | Creates promotional events by retailer |
 | `04b_generate_price_history.py` | Adds time-based pricing changes |
 | `05_generate_scan_data.py` | Generates ~1.19M rows of weekly scan data (depends on all prior tables) |
 | `06_validate_dataset.py` | Validates row counts, revenue targets, referential integrity |
+
+The built database (`cinderhaven_product_master.db`) is not committed — it's 172 MB and regenerable from the scripts. Run `build_db.py` to produce it locally:
+
+```bash
+cd scripts
+python build_db.py
+```
 
 After regeneration, always verify revenue lands at $23–27M.
 
