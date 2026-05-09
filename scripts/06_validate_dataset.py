@@ -15,7 +15,7 @@ EXPECTED_COUNTS = {
     "stores":           (895, 910),
     "distribution_log": (12_000, 13_500),
     "sku_costs":        (90, 90),
-    "promotions":       (90, 160),    # SKU-level rows
+    "promotions":       (90, 250),    # SKU-level rows (line promos + regional expansion)
     "scan_data":        (900_000, 1_400_000),
 }
 

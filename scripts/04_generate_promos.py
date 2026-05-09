@@ -3,6 +3,10 @@
 Builds ~75 promotional events across the 104-week window, with retailer mix,
 promo type mix, seasonal concentration, and a few line-level promos that span
 multiple SKUs in the same product line.
+
+Includes promo_cost (manufacturer's funded amount) and funding_mechanism
+(off_invoice, bill_back, scan_down, mcb, fixed_fee, slotting) columns
+for integration with the deduction pipeline.
 """
 
 import random
@@ -102,6 +106,52 @@ SEASON_WEIGHTS = [
     ("BTS",     16),  # Aug-Sep
     ("Offpeak", 13),  # everything else
 ]
+
+# Funding mechanism weights by retailer category × promo type.
+# off_invoice = price reduction on the invoice (retailer already has the discount)
+# bill_back = retailer invoices manufacturer after the promo period
+# scan_down = scan-based reimbursement per unit sold during promo window
+# mcb = manufacturer chargeback (distributor term, similar to bill_back)
+# fixed_fee = flat fee for display/feature placement
+# slotting = shelf placement / new-item fee
+FUNDING_MECHANISM_WEIGHTS = {
+    "Walmart": {
+        "TPR":     [("scan_down", 45), ("bill_back", 35), ("off_invoice", 15), ("fixed_fee", 5)],
+        "Display": [("fixed_fee", 55), ("scan_down", 25), ("bill_back", 20)],
+        "Feature": [("scan_down", 40), ("bill_back", 35), ("off_invoice", 20), ("fixed_fee", 5)],
+        "BOGO":    [("scan_down", 50), ("bill_back", 30), ("off_invoice", 20)],
+    },
+    "Costco": {
+        "TPR":     [("off_invoice", 50), ("fixed_fee", 30), ("bill_back", 20)],
+        "Display": [("fixed_fee", 60), ("off_invoice", 30), ("bill_back", 10)],
+        "Feature": [("off_invoice", 45), ("fixed_fee", 35), ("bill_back", 20)],
+        "BOGO":    [("off_invoice", 55), ("fixed_fee", 30), ("bill_back", 15)],
+    },
+    "Whole Foods": {
+        "TPR":     [("scan_down", 40), ("bill_back", 35), ("off_invoice", 20), ("mcb", 5)],
+        "Display": [("bill_back", 40), ("scan_down", 30), ("fixed_fee", 30)],
+        "Feature": [("scan_down", 35), ("bill_back", 35), ("off_invoice", 20), ("fixed_fee", 10)],
+        "BOGO":    [("scan_down", 45), ("bill_back", 35), ("off_invoice", 20)],
+    },
+    "Regional": {
+        "TPR":     [("off_invoice", 45), ("bill_back", 35), ("scan_down", 15), ("mcb", 5)],
+        "Display": [("bill_back", 40), ("off_invoice", 35), ("fixed_fee", 25)],
+        "Feature": [("off_invoice", 40), ("bill_back", 35), ("scan_down", 15), ("fixed_fee", 10)],
+        "BOGO":    [("off_invoice", 50), ("bill_back", 30), ("scan_down", 20)],
+    },
+    "UNFI": {
+        "TPR":     [("mcb", 45), ("bill_back", 35), ("off_invoice", 15), ("scan_down", 5)],
+        "Display": [("mcb", 40), ("bill_back", 30), ("fixed_fee", 30)],
+        "Feature": [("mcb", 40), ("bill_back", 35), ("off_invoice", 15), ("scan_down", 10)],
+        "BOGO":    [("mcb", 50), ("bill_back", 30), ("off_invoice", 20)],
+    },
+    "DTC": {
+        "TPR":     [("off_invoice", 80), ("fixed_fee", 20)],
+        "Display": [("fixed_fee", 70), ("off_invoice", 30)],
+        "Feature": [("off_invoice", 70), ("fixed_fee", 30)],
+        "BOGO":    [("off_invoice", 90), ("fixed_fee", 10)],
+    },
+}
 
 
 def week_start(w: int) -> date:
@@ -231,6 +281,23 @@ def main():
             skus_for_promo = [random.choice(candidates)]
 
         promo_id = f"PROMO-{i:04d}"
+
+        # Funding mechanism: retailer × promo type specific
+        fm_weights = FUNDING_MECHANISM_WEIGHTS.get(retailer, FUNDING_MECHANISM_WEIGHTS["Regional"])
+        fm_type_weights = fm_weights.get(promo_type, [("bill_back", 50), ("off_invoice", 50)])
+        funding_mechanism = weighted_choice(fm_type_weights)
+
+        # Promo cost: discount_depth × estimated volume × wholesale price
+        # ~5% of events NULL to represent unconfirmed TBD costs (expands
+        # to ~10% of rows due to line-promo and regional expansion)
+        if random.random() < 0.05:
+            promo_cost = None
+        else:
+            est_weekly_cases = random.uniform(20, 80)
+            est_volume = est_weekly_cases * duration
+            avg_wholesale = random.uniform(4.50, 8.50)
+            promo_cost = round(discount * est_volume * avg_wholesale * random.uniform(0.85, 1.15), 2)
+
         # "Regional" is a category aggregating 5 independent chains. Each
         # Regional trade event is executed at all 5 chains simultaneously
         # under one negotiated discount, so we expand to 5 chain-level rows
@@ -243,6 +310,7 @@ def main():
                 promo_rows.append((
                     promo_id, sku, emit_r, scope, start, end,
                     duration, discount, promo_type,
+                    promo_cost, funding_mechanism,
                 ))
 
     # --- Write to DB ---
@@ -258,6 +326,8 @@ def main():
             duration_weeks      INTEGER NOT NULL,
             discount_depth_pct  REAL NOT NULL,
             promo_type          TEXT NOT NULL,
+            promo_cost          REAL,
+            funding_mechanism   TEXT,
             PRIMARY KEY (promo_id, sku, retailer)
         )
     """)
@@ -266,8 +336,9 @@ def main():
     cur.executemany("""
         INSERT INTO promotions
             (promo_id, sku, retailer, store_scope, start_week, end_week,
-             duration_weeks, discount_depth_pct, promo_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             duration_weeks, discount_depth_pct, promo_type,
+             promo_cost, funding_mechanism)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, promo_rows)
     con.commit()
 
@@ -331,6 +402,18 @@ def main():
     print(f"\nSKUs with no promos: {len(no_promo_skus)}")
     skus_with_promos = cur.execute("SELECT COUNT(DISTINCT sku) FROM promotions").fetchone()[0]
     print(f"SKUs with at least one promo: {skus_with_promos}")
+
+    # Funding mechanism summary
+    print("\nFunding mechanism distribution:")
+    for fm, c in cur.execute("""
+        SELECT funding_mechanism, COUNT(*)
+        FROM promotions WHERE funding_mechanism IS NOT NULL
+        GROUP BY funding_mechanism ORDER BY COUNT(*) DESC
+    """).fetchall():
+        print(f"  {fm:<14} {c:>4}")
+    n_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NOT NULL").fetchone()[0]
+    n_null_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NULL").fetchone()[0]
+    print(f"\npromo_cost populated: {n_cost}  NULL (TBD): {n_null_cost}")
 
     con.close()
 
