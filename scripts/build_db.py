@@ -1,29 +1,40 @@
 """Build the Cinderhaven SQLite dataset from scratch.
 
-The 164 MB synthetic dataset is too large to commit to GitHub, so this
-script regenerates it on demand. Runs once on first deploy (or whenever
-the DB file is missing) and is a no-op on subsequent boots.
+The synthetic dataset is too large to commit to GitHub, so this script
+regenerates it on demand. Runs once on first deploy (or whenever the DB
+file is missing) and is a no-op on subsequent boots.
 
 Order of operations:
-  0. Seed `product_master` from scripts/seed_product_master.sql (90 rows
-     of read-only product reference data).
+  0. Seed `product_master` from scripts/seed_product_master.sql
   1. 01_generate_stores.py          — store directory
   2. 02_generate_distribution.py    — SKU x store authorizations + deauths
   3. 02b_generate_chargebacks.py    — defect-driven chargebacks
   4. 03_generate_costs.py           — sku_costs (wholesale, COGS, etc.)
-  5. 04_generate_promos.py          — promotions table
+  5. 04_generate_promos.py          — promotions table (incl promo_cost, funding_mechanism)
   6. 04b_generate_price_history.py  — price history per SKU x retailer
   7. 05_generate_scan_data.py       — weekly scan data (the big one)
-  8. 06_validate_dataset.py         — sanity-check the built DB
+  8. 06_validate_dataset.py         — sanity-check the base tables
+  -- Deduction pipeline (extends the DB with 13 tables) --
+  9. 07_seed_deduction_tables.py    — schema DDL + static seeds
+ 10. 08_generate_orders.py          — purchase orders + order_lines
+ 11. 09_generate_pack_records.py    — pack/label/evidence records
+ 12. 10_generate_shipments.py       — shipment records + BOL/POD/ASN
+ 13. 11_generate_deductions.py      — deduction records + double-dips
+ 14. 12_generate_post_audit_claims.py — retroactive audit clawbacks
+ 15. 13_generate_remittances.py     — payment events bundling deductions
+ 16. 14_generate_disputes.py        — dispute filings + evidence
+ 17. 15_validate_deductions.py      — deduction-specific validation
 
 Usage:
-  python scripts/build_db.py           # build if missing
-  python scripts/build_db.py --force   # rebuild even if DB exists
+  python scripts/build_db.py                        # build if missing
+  python scripts/build_db.py --force                # rebuild even if DB exists
+  python scripts/build_db.py --output /path/to.db   # write the built DB elsewhere
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -43,6 +54,16 @@ PIPELINE = [
     "04b_generate_price_history.py",
     "05_generate_scan_data.py",
     "06_validate_dataset.py",
+    # Deduction pipeline (extends the base with 13 new tables)
+    "07_seed_deduction_tables.py",
+    "08_generate_orders.py",
+    "09_generate_pack_records.py",
+    "10_generate_shipments.py",
+    "11_generate_deductions.py",
+    "12_generate_post_audit_claims.py",
+    "13_generate_remittances.py",
+    "14_generate_disputes.py",
+    "15_validate_deductions.py",
 ]
 
 
@@ -85,7 +106,7 @@ def run_script(name: str) -> None:
         )
 
 
-def build(force: bool = False) -> None:
+def build(force: bool = False, output: Path | None = None) -> None:
     if DB_PATH.exists() and not force:
         size_mb = DB_PATH.stat().st_size / (1024 * 1024)
         print(f"Database already exists ({size_mb:.1f} MB) — skipping build.")
@@ -96,7 +117,6 @@ def build(force: bool = False) -> None:
     if force and DB_PATH.exists():
         print(f"Removing existing {DB_PATH.name} (--force)...")
         DB_PATH.unlink()
-        # Also clear stale WAL/SHM that would otherwise survive the rebuild.
         for sidecar in (DB_PATH.with_suffix(".db-wal"), DB_PATH.with_suffix(".db-shm")):
             if sidecar.exists():
                 sidecar.unlink()
@@ -109,8 +129,20 @@ def build(force: bool = False) -> None:
         print(f"Step {i}: {name}")
         run_script(name)
 
-    size_mb = DB_PATH.stat().st_size / (1024 * 1024)
-    print(f"\nBuild complete. Database is {size_mb:.1f} MB at {DB_PATH}.")
+    if output is not None:
+        output = output.resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(DB_PATH, output)
+        DB_PATH.unlink()
+        for sidecar in (DB_PATH.with_suffix(".db-wal"), DB_PATH.with_suffix(".db-shm")):
+            if sidecar.exists():
+                sidecar.unlink()
+        final_path = output
+    else:
+        final_path = DB_PATH
+
+    size_mb = final_path.stat().st_size / (1024 * 1024)
+    print(f"\nBuild complete. Database is {size_mb:.1f} MB at {final_path}.")
 
 
 def main() -> int:
@@ -119,9 +151,13 @@ def main() -> int:
         "--force", action="store_true",
         help="Rebuild from scratch even if the DB already exists.",
     )
+    p.add_argument(
+        "--output", type=Path, default=None,
+        help="Copy the built database to this path (default: data/ inside this repo).",
+    )
     args = p.parse_args()
     try:
-        build(force=args.force)
+        build(force=args.force, output=args.output)
     except Exception as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         return 1
