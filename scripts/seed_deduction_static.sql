@@ -117,8 +117,8 @@ INSERT INTO retailer_rules (retailer_id, deduction_type, dispute_window_days, au
   ('harbor_fresh', 'promo_billback', NULL, 0, 'promo_agreement',            0.45, 'Inferred'),
   ('harbor_fresh', 'vague',          NULL, 0, 'pack_log',                   0.15, 'Inferred'),
   -- ---- spoilage (operational failure — full pipeline) ----
-  ('walmart',             'spoilage', 365,  1, 'signed_bol,photo,pack_log',  0.45, 'Code 28-adjacent; product condition disputes at receiving — temperature, expiration, quality'),
-  ('costco',              'spoilage', NULL, 1, 'signed_bol,photo',           0.45, 'Cross-dock receiving rejects on cold-chain/quality at depot; window inferred'),
+  ('walmart',             'spoilage', 365,  1, 'signed_bol,photo,pack_log',  0.45, 'Code 28-adjacent; product condition disputes at receiving — heat exposure, expiration, quality'),
+  ('costco',              'spoilage', NULL, 1, 'signed_bol,photo',           0.45, 'Cross-dock receiving rejects on condition/quality at depot; window inferred'),
   ('whole_foods',         'spoilage', NULL, 0, 'signed_bol,photo',           0.40, 'Strict quality program; regional fragmentation drives variability'),
   ('unfi',                'spoilage', 60,   1, 'signed_bol,photo',           0.40, 'Includes unsaleables on the natural side; Excel-only dispute form'),
   ('kehe',                'spoilage', 180,  1, 'signed_bol,photo',           0.40, 'UDR window 48hr at receipt for damage/spoilage; K-Solve 180-day cap on follow-up'),
@@ -235,7 +235,7 @@ INSERT INTO deduction_codes (code_id, retailer_id, code, name, deduction_type, i
   ('harbor_fresh_vague',          'harbor_fresh', 'MISC',  'Miscellaneous',    'vague',          0),
   -- ---- spoilage codes ----
   ('walmart_spoilage',             'walmart',             '29',    'Concealed damage / spoilage at receipt',         'spoilage', 1),
-  ('costco_spoilage',              'costco',              'SPL',   'Spoilage / cold-chain rejection',                'spoilage', 0),
+  ('costco_spoilage',              'costco',              'SPL',   'Spoilage / product condition at receipt',         'spoilage', 0),
   ('wholefoods_spoilage',          'whole_foods',         'SPL',   'Spoilage / quality at receipt',                  'spoilage', 0),
   ('unfi_spoilage',                'unfi',                'UNS',   'Unsaleable / spoilage',                          'spoilage', 0),
   ('kehe_spoilage',                'kehe',                'UDRS',  'UDR — spoilage at receipt',                      'spoilage', 0),

@@ -12,9 +12,9 @@ The central deduction record. Drives a realistic distribution of:
   - promo_billback (random per retailer; tied to promo activity)
   - vague (Walmart Code 87/99 catch-all; MISC at others; opaque
     descriptions for the "vague/undecodable" feature)
-  - spoilage (product-condition disputes at receiving — temperature,
-    expiration, quality, damage-in-transit; flows through the same
-    failure pipeline as the other operational types)
+  - spoilage (product-condition disputes at receiving — heat exposure,
+    expiration, quality, damage-in-transit; shelf-stable catalog so no
+    cold-chain; flows through the same failure pipeline)
   - slotting (negotiated cost — new-item / planogram / shelf placement
     fees; NOT an operational failure, generated as periodic per-retailer
     events outside the per-order loop, no order_id / shipment_id, no
@@ -202,8 +202,11 @@ PROFILES = {
 # Spoilage descriptions encode the sub-cause as a keyword the Sankey
 # rootCauseFor function reads. Keep keywords stable: 'temperature',
 # 'expired'/'short-dated', 'quality', 'damage in transit'.
+# Cinderhaven's catalog is shelf-stable (sauces, condiments, pantry
+# staples) — no cold chain. "Temperature" here means heat exposure
+# degrading product condition, not refrigeration failure.
 SPOILAGE_TEMPLATES = [
-    "Spoilage — temperature abuse in transit",
+    "Spoilage — temperature exposure in transit",
     "Spoilage — expired or short-dated at receiving",
     "Spoilage — quality complaint at receiving",
     "Spoilage — damage in transit affecting condition",
