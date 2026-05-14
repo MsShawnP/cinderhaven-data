@@ -108,3 +108,7 @@ python scripts/build_db.py --force  # rebuild from scratch
 ## Tools
 
 Python, SQLite
+
+## License
+
+MIT — see [LICENSE](LICENSE).
