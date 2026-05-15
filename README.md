@@ -1,8 +1,13 @@
 # cinderhaven-data
 
-The shared dataset behind the [Cinderhaven Provisions](https://github.com/MsShawnP) portfolio. Cinderhaven is a fictional ~$25M specialty food brand with 90 SKUs across three product lines, selling through Walmart, Costco, Whole Foods, regional chains, UNFI/KeHE distribution, and DTC.
+The generation layer for the [Cinderhaven Provisions](https://github.com/MsShawnP) portfolio dataset. Cinderhaven is a fictional ~$25M specialty food brand with 90 SKUs across three product lines, selling through Walmart, Costco, Whole Foods, regional chains, UNFI/KeHE distribution, and DTC.
 
-This repo is the single source of truth for the database and the scripts that generate it. Other repos consume the built database — they don't maintain their own copies.
+This repo generates and validates the SQLite database. The
+[Cinderhaven Data Platform](https://github.com/MsShawnP/cinderhaven-data-platform)
+ingests it into Postgres (dbt + Dagster) and serves as the analytical
+source of truth for most portfolio projects. This repo remains the
+canonical place to regenerate the dataset or modify the generation
+scripts.
 
 ## The dataset
 
@@ -93,17 +98,35 @@ python scripts/build_db.py          # build if missing
 python scripts/build_db.py --force  # rebuild from scratch
 ```
 
-## Repos that use this dataset
+## Downstream consumers
 
-- **[retailer-deduction-recovery](https://github.com/MsShawnP/retailer-deduction-recovery)** — Interactive React demo making retailer deduction losses visible and actionable. Consumes this database via JSON export.
-- **[retail-velocity-decision-tool](https://github.com/MsShawnP/retail-velocity-decision-tool)** — Velocity decision tool for specialty food CEOs. [Try it live →](https://velocity-tool.streamlit.app/)
-- **[product-data-audit-demo](https://github.com/MsShawnP/product-data-audit-demo)** — SQL diagnostic queries for auditing product master data quality
+### Via Postgres (Cinderhaven Data Platform)
 
-## Setup for consuming repos
+These projects read from the data platform's Postgres mart tables, not
+from the SQLite database directly. To update their data, regenerate the
+SQLite here, then re-run the platform's ingest pipeline.
+
+- **[cinderhaven-data-platform](https://github.com/MsShawnP/cinderhaven-data-platform)** — Ingests this SQLite into Postgres via COPY loader. dbt transforms raw → staging → marts. Dagster orchestrates.
+- **[retail-velocity-decision-tool](https://github.com/MsShawnP/retail-velocity-decision-tool)** — Dash decision tool for specialty food CEOs. [Try it live →](https://retail-velocity-decision-tool.fly.dev)
+- **[retailer-deduction-recovery](https://github.com/MsShawnP/retailer-deduction-recovery)** — Interactive React demo tracing retailer deduction losses through five compounding failures. Exports Postgres data to static JSON.
+- **[product-data-audit-demo](https://github.com/MsShawnP/product-data-audit-demo)** — 53-query product data audit with HTML/PDF report generator.
+- **[trade-spend-data-diagnostic](https://github.com/MsShawnP/trade-spend-data-diagnostic)** — Trade spend diagnostic workbook quantifying $1M margin leak.
+- **[product-data-health-audit](https://github.com/MsShawnP/product-data-health-audit)** — R/Quarto product data health audit with Shiny calculator.
+
+### Via SQLite (directly)
+
+These projects read from the built `.db` file without going through the
+data platform.
+
+- **[short-ship-cost](https://github.com/MsShawnP/short-ship-cost)** — Extracts product, cost, and store data into a local SQLite for order generation and cost modelling.
+- **[cinderhaven-data-dirty](https://github.com/MsShawnP/cinderhaven-data-dirty)** — Degrades the clean database with realistic data-quality defects for data-hygiene portfolio work.
+
+## Setup
 
 1. Clone this repo
 2. Run `python scripts/build_db.py`
-3. Place or symlink the database file in the consuming repo's `data/` directory
+3. To update Postgres consumers: run the data platform's ingest pipeline
+4. To update SQLite consumers: place or symlink the `.db` file in the consuming repo's `data/` directory
 
 ## Tools
 
