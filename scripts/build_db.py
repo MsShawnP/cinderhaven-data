@@ -40,8 +40,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from shared import DB_PATH
+
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "data" / "cinderhaven_product_master.db"
 SEED_SQL = Path(__file__).resolve().parent / "seed_product_master.sql"
 
 # Order matters: each script reads from tables built by earlier ones.
@@ -111,7 +112,7 @@ def build(force: bool = False, output: Path | None = None) -> None:
         size_mb = DB_PATH.stat().st_size / (1024 * 1024)
         print(f"Database already exists ({size_mb:.1f} MB) — skipping build.")
         print(f"  Path: {DB_PATH}")
-        print(f"  Pass --force to rebuild from scratch.")
+        print("  Pass --force to rebuild from scratch.")
         return
 
     if force and DB_PATH.exists():

@@ -20,9 +20,9 @@ from __future__ import annotations
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
+
 SEED = 43
 
 PACKERS = ["JM", "RS", "AT", "KP", "DL", "EB", "TC"]
@@ -61,7 +61,9 @@ def weighted_choice(rng: random.Random, choices: list[tuple[str, float]]) -> str
     return choices[-1][0]
 
 
-def evidence_for(rng: random.Random, verification: str, pack_dt: date, today: date) -> tuple[str, str | None, int | None]:
+def evidence_for(
+    rng: random.Random, verification: str, pack_dt: date, today: date,
+) -> tuple[str, str | None, int | None]:
     """Returns (evidence_format, evidence_location, retrieval_minutes)."""
     age_days = (today - pack_dt).days
 

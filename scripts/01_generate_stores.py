@@ -7,9 +7,9 @@ roughly mirror real US retail footprints.
 
 import random
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
+
 SEED = 42
 
 REGION_STATES = {

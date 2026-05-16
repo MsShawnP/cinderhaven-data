@@ -19,10 +19,9 @@ from __future__ import annotations
 import random
 import sqlite3
 from collections import Counter
-from datetime import date
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, gtin_invalid, upc_missing
+
 SEED = 42
 
 # Chargeback window: 18 months ending 2026-05 (matches the prior table).
@@ -40,23 +39,6 @@ def months_in_window() -> list[str]:
             y += 1
             m = 1
     return out
-
-
-# ----- defect detection (mirror script 02) -----
-
-def gtin_invalid(gtin: str | None) -> bool:
-    if not gtin or len(gtin) != 14 or not gtin.isdigit():
-        return True
-    d = [int(c) for c in gtin]
-    s = sum(d[i] * (1 if (12 - i) % 2 == 0 else 3) for i in range(13))
-    return (10 - s % 10) % 10 != d[13]
-
-
-def upc_missing(upc: str | None) -> bool:
-    if upc is None:
-        return True
-    s = str(upc).strip()
-    return s == "" or s in ("TBD", "N/A", "0", "00000000000", "000000000000")
 
 
 # ----- chargeback config -----

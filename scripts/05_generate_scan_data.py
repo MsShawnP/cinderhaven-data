@@ -25,9 +25,9 @@ import random
 import sqlite3
 from collections import defaultdict
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES, gtin_invalid, upc_missing
+
 SEED = 42
 
 WEEK_1_START = date(2024, 5, 6)   # Monday
@@ -51,11 +51,6 @@ LINE_SEASONALITY = {
     "Artisan Sauces":       SAUCE_MONTHLY,
     "Specialty Condiments": COND_MONTHLY,
     "Pantry Staples":       PANTRY_MONTHLY,
-}
-
-REGIONAL_CHAIN_NAMES = {
-    "Green Basket Market", "Harbor Fresh", "Prairie Provisions",
-    "Mountain Pantry Co", "Southside Grocers",
 }
 
 RETAILER_MULT = {
@@ -89,23 +84,6 @@ DTC_ANNUAL_REVENUE = 800_000
 # Bumped from 0.62 to 0.66 to offset the ~5% revenue reduction from the
 # retailer-specific wholesale prices added to sku_costs.
 VELOCITY_SCALE = 0.66
-
-
-# --- Defect detection (mirrors scripts 02 / 02b) ---
-
-def gtin_invalid(gtin: str | None) -> bool:
-    if not gtin or len(gtin) != 14 or not gtin.isdigit():
-        return True
-    d = [int(c) for c in gtin]
-    s = sum(d[i] * (1 if (12 - i) % 2 == 0 else 3) for i in range(13))
-    return (10 - s % 10) % 10 != d[13]
-
-
-def upc_missing(upc: str | None) -> bool:
-    if upc is None:
-        return True
-    s = str(upc).strip()
-    return s == "" or s in ("TBD", "N/A", "0", "00000000000", "000000000000")
 
 
 def date_to_week(d_str):
@@ -558,7 +536,6 @@ def main():
         store_ret, store_vt, is_agg = stores[sid]
         ws_price = wholesale_for(sku, store_ret)
 
-        auth_w = date_to_week(ad)
         deauth_w = date_to_week(dd) if dd else None
 
         # Defect-driven time-to-first-scan delay. Convert auth_date + delay_days
@@ -732,7 +709,10 @@ def main():
     for b in (0, 1, 2, 3):
         vals = bucket_gaps[b]
         if vals:
-            print(f"  {labels[b]:<16} n={len(vals):>5}  delay days mean={sum(vals)/len(vals):>5.1f}  min={min(vals)}  max={max(vals)}")
+            print(
+                f"  {labels[b]:<16} n={len(vals):>5}  delay days"
+                f" mean={sum(vals)/len(vals):>5.1f}  min={min(vals)}  max={max(vals)}"
+            )
 
     print("\nUnits sold by retailer category:")
     rows = cur.execute("""
@@ -790,14 +770,16 @@ def main():
              WHERE d.sku = pd.sku
                AND (s.retailer = pd.retailer
                     OR (pd.retailer = 'Regional' AND s.retailer IN
-                        ('Green Basket Market','Harbor Fresh','Prairie Provisions','Mountain Pantry Co','Southside Grocers')))
+                        ('Green Basket Market','Harbor Fresh','Prairie Provisions',
+                         'Mountain Pantry Co','Southside Grocers')))
                AND d.week_ending NOT BETWEEN pd.start_week AND pd.end_week) AS base_avg,
             (SELECT AVG(d.units_sold) FROM scan_data d
              JOIN stores s ON d.store_id = s.store_id
              WHERE d.sku = pd.sku
                AND (s.retailer = pd.retailer
                     OR (pd.retailer = 'Regional' AND s.retailer IN
-                        ('Green Basket Market','Harbor Fresh','Prairie Provisions','Mountain Pantry Co','Southside Grocers')))
+                        ('Green Basket Market','Harbor Fresh','Prairie Provisions',
+                         'Mountain Pantry Co','Southside Grocers')))
                AND d.week_ending BETWEEN pd.start_week AND pd.end_week) AS promo_avg
         FROM (SELECT DISTINCT promo_id, sku, retailer, start_week, end_week, promo_type FROM promotions) pd
         WHERE pd.retailer NOT IN ('UNFI', 'DTC')

@@ -23,9 +23,9 @@ from __future__ import annotations
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
+
 SEED = 42
 
 WINDOW_START = date(2024, 12, 1)

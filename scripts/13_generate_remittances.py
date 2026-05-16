@@ -15,13 +15,10 @@ investigation.
 
 from __future__ import annotations
 
-import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
-SEED = 46
+from shared import DB_PATH
 
 FORMAT_BY_RETAILER = {
     "walmart": "edi_820",
@@ -42,7 +39,6 @@ def week_start(d: date) -> date:
 
 
 def main() -> None:
-    rng = random.Random(SEED)
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 

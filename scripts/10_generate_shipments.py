@@ -18,9 +18,9 @@ from __future__ import annotations
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
+
 SEED = 44
 
 CARRIERS = ["CH Robinson", "FedEx Freight", "Estes", "Old Dominion", "Saia", "XPO"]
@@ -72,8 +72,6 @@ def main() -> None:
          units_packed, pack_date_str) in rows:
         profile = PROFILES.get(retailer_id, PROFILES["walmart"])
         requested_ship = date.fromisoformat(requested_ship_str)
-        win_start = date.fromisoformat(win_start_str) if win_start_str else None
-        win_end = date.fromisoformat(win_end_str) if win_end_str else None
 
         # Ship date: usually within 1 day of requested_ship; occasionally late
         ship_offset = rng.choices([-1, 0, 0, 0, 1, 2, 3, 5], weights=[5, 35, 25, 15, 10, 5, 3, 2])[0]

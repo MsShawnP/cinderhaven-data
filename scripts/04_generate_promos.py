@@ -12,18 +12,13 @@ for integration with the deduction pipeline.
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES
+
 SEED = 42
 
 WEEK_1 = date(2024, 5, 6)
 TOTAL_WEEKS = 104
-
-REGIONAL_CHAIN_NAMES = {
-    "Green Basket Market", "Harbor Fresh", "Prairie Provisions",
-    "Mountain Pantry Co", "Southside Grocers",
-}
 
 # Retailer-specific promo "personality": frequency, type mix, depth ranges,
 # duration. Each retailer behaves differently in real life — Walmart runs many
@@ -160,10 +155,14 @@ def week_start(w: int) -> date:
 
 def season_for_date(d: date) -> str:
     m = d.month
-    if m in (11, 12): return "Q4"
-    if m in (6, 7):   return "Summer"
-    if m in (8, 9):   return "BTS"
-    if m in (3, 4):   return "Spring"
+    if m in (11, 12):
+        return "Q4"
+    if m in (6, 7):
+        return "Summer"
+    if m in (8, 9):
+        return "BTS"
+    if m in (3, 4):
+        return "Spring"
     return "Offpeak"
 
 
@@ -230,7 +229,6 @@ def main():
         for ptype, c in type_counts.items():
             promo_plan.extend([(retailer, ptype)] * c)
     random.shuffle(promo_plan)
-    n_promos = len(promo_plan)
 
     promo_rows = []
 
