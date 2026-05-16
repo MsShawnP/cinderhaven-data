@@ -40,6 +40,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from shared import DB_PATH
+
 SEED = 45
 
 DATE_CAP = date(2026, 5, 2)
@@ -537,7 +538,7 @@ def main() -> None:
 
     double_dip_ids = []
     dd_total = 0.0
-    dd_target_lo, dd_target_hi = 15000.0, 20000.0
+    dd_target_hi = 20000.0
     dd_per_deduction = [6500.0, 7200.0, 5800.0]
 
     for idx, promo_row in enumerate(promo_rows):
@@ -571,7 +572,8 @@ def main() -> None:
         seq += 1
         deduction_id = f"DED-{seq:07d}"
         cid_row = cur.execute(
-            "SELECT code_id, code FROM deduction_codes WHERE retailer_id = ? AND deduction_type = 'promo_billback' LIMIT 1",
+            "SELECT code_id, code FROM deduction_codes"
+            " WHERE retailer_id = ? AND deduction_type = 'promo_billback' LIMIT 1",
             (retailer_slug,)
         ).fetchone()
         code_id = cid_row[0] if cid_row else None

@@ -15,12 +15,10 @@ investigation.
 
 from __future__ import annotations
 
-import random
 import sqlite3
 from datetime import date, timedelta
 
 from shared import DB_PATH
-SEED = 46
 
 FORMAT_BY_RETAILER = {
     "walmart": "edi_820",
@@ -41,7 +39,6 @@ def week_start(d: date) -> date:
 
 
 def main() -> None:
-    rng = random.Random(SEED)
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 

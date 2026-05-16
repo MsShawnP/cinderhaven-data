@@ -112,7 +112,7 @@ def build(force: bool = False, output: Path | None = None) -> None:
         size_mb = DB_PATH.stat().st_size / (1024 * 1024)
         print(f"Database already exists ({size_mb:.1f} MB) — skipping build.")
         print(f"  Path: {DB_PATH}")
-        print(f"  Pass --force to rebuild from scratch.")
+        print("  Pass --force to rebuild from scratch.")
         return
 
     if force and DB_PATH.exists():

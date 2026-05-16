@@ -155,10 +155,14 @@ def week_start(w: int) -> date:
 
 def season_for_date(d: date) -> str:
     m = d.month
-    if m in (11, 12): return "Q4"
-    if m in (6, 7):   return "Summer"
-    if m in (8, 9):   return "BTS"
-    if m in (3, 4):   return "Spring"
+    if m in (11, 12):
+        return "Q4"
+    if m in (6, 7):
+        return "Summer"
+    if m in (8, 9):
+        return "BTS"
+    if m in (3, 4):
+        return "Spring"
     return "Offpeak"
 
 
@@ -225,7 +229,6 @@ def main():
         for ptype, c in type_counts.items():
             promo_plan.extend([(retailer, ptype)] * c)
     random.shuffle(promo_plan)
-    n_promos = len(promo_plan)
 
     promo_rows = []
 

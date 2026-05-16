@@ -25,6 +25,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from shared import DB_PATH
+
 SEED = 42
 
 WINDOW_START = date(2024, 12, 1)

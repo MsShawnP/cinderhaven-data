@@ -9,6 +9,7 @@ import random
 import sqlite3
 
 from shared import DB_PATH
+
 SEED = 42
 
 REGION_STATES = {

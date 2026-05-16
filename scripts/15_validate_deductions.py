@@ -154,10 +154,11 @@ def main() -> int:
     months = (end.year - start.year) * 12 + (end.month - start.month) + 1
     annualized = total * 12 / months
 
+    lo, hi = ANNUAL_DOLLAR_TARGET
     if in_range(annualized, *ANNUAL_DOLLAR_TARGET):
-        rep.passed(f"Annualized deductions ${annualized:,.0f} in target ${ANNUAL_DOLLAR_TARGET[0]:,}-${ANNUAL_DOLLAR_TARGET[1]:,}")
+        rep.passed(f"Annualized deductions ${annualized:,.0f} in target ${lo:,}-${hi:,}")
     else:
-        rep.warn(f"Annualized deductions ${annualized:,.0f} outside target ${ANNUAL_DOLLAR_TARGET[0]:,}-${ANNUAL_DOLLAR_TARGET[1]:,}")
+        rep.warn(f"Annualized deductions ${annualized:,.0f} outside target ${lo:,}-${hi:,}")
 
     # ===== Revenue still ~$25M =====
     print("\nBase dataset integrity:")

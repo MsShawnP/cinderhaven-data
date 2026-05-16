@@ -26,6 +26,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from shared import DB_PATH
+
 SEED = 47
 
 # Today / window-end — anything more recent should occasionally still be `pending`.

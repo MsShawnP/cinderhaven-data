@@ -138,7 +138,6 @@ def main() -> None:
     con.commit()
 
     print(f"Inserted {len(rows):,} price_history rows.")
-    n_initial = sum(1 for _, _, _, _ in rows)  # all rows
     n_skus = len({(s, c) for s, c, _, _ in rows})
     print(f"  Distinct (sku, retailer) pairs: {n_skus}")
     n_increase = sum(1 for s, c, d, _ in rows

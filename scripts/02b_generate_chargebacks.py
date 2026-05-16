@@ -19,7 +19,6 @@ from __future__ import annotations
 import random
 import sqlite3
 from collections import Counter
-from datetime import date
 
 from shared import DB_PATH, gtin_invalid, upc_missing
 

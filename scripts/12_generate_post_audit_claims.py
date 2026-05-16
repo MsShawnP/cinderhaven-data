@@ -28,6 +28,7 @@ import sqlite3
 from datetime import date, timedelta
 
 from shared import DB_PATH
+
 SEED = 48
 
 DATE_CAP = date(2026, 5, 2)
@@ -151,11 +152,12 @@ def main() -> None:
                 deadline = (ded_date + timedelta(days=window)).isoformat() if window else None
 
                 # Description varies by claim type
+                period = f"{audit_period_start.isoformat()} to {audit_period_end.isoformat()}"
                 desc = {
-                    "pricing":    f"Post-audit pricing recovery — period {audit_period_start.isoformat()} to {audit_period_end.isoformat()}",
-                    "allowance":  f"Post-audit allowance reconciliation — period {audit_period_start.isoformat()} to {audit_period_end.isoformat()}",
-                    "freight":    f"Post-audit freight chargeback — period {audit_period_start.isoformat()} to {audit_period_end.isoformat()}",
-                    "compliance": f"Post-audit compliance findings — period {audit_period_start.isoformat()} to {audit_period_end.isoformat()}",
+                    "pricing":    f"Post-audit pricing recovery — period {period}",
+                    "allowance":  f"Post-audit allowance reconciliation — period {period}",
+                    "freight":    f"Post-audit freight chargeback — period {period}",
+                    "compliance": f"Post-audit compliance findings — period {period}",
                 }[claim_type]
 
                 # Post-audit claims are *not* vague — they carry an audit
