@@ -1,8 +1,8 @@
 # cinderhaven-data
 
-The shared dataset behind the [Cinderhaven Provisions](https://github.com/MsShawnP) portfolio. Cinderhaven is a fictional ~$25M specialty food brand with 90 SKUs across three product lines, selling through Walmart, Costco, Whole Foods, regional chains, UNFI/KeHE distribution, and DTC.
+Seed dataset for the [Cinderhaven Provisions](https://github.com/MsShawnP) portfolio. Cinderhaven is a fictional ~$25M specialty food brand with 90 SKUs across three product lines, selling through Walmart, Costco, Whole Foods, regional chains, UNFI/KeHE distribution, and DTC.
 
-This repo is the single source of truth for the database and the scripts that generate it. Other repos consume the built database — they don't maintain their own copies.
+This repo generates the baseline SQLite database that **[cinderhaven-data-platform](https://github.com/MsShawnP/cinderhaven-data-platform)** ingests and extends. The generation scripts here produce a deterministic, reproducible dataset from seeded RNG — no external data sources or API keys required.
 
 ## The dataset
 
@@ -93,21 +93,25 @@ python scripts/build_db.py          # build if missing
 python scripts/build_db.py --force  # rebuild from scratch
 ```
 
-## Repos that use this dataset
+## Downstream
 
-- **[retailer-deduction-recovery](https://github.com/MsShawnP/retailer-deduction-recovery)** — Interactive React demo making retailer deduction losses visible and actionable. Consumes this database via JSON export.
-- **[retail-velocity-decision-tool](https://github.com/MsShawnP/retail-velocity-decision-tool)** — Velocity decision tool for specialty food CEOs. [Try it live →](https://velocity-tool.streamlit.app/)
+**[cinderhaven-data-platform](https://github.com/MsShawnP/cinderhaven-data-platform)** — The primary consumer. Ingests the generated database and extends it for analytics and tooling.
+
+Earlier portfolio demos that consumed this database directly:
+
+- **[retailer-deduction-recovery](https://github.com/MsShawnP/retailer-deduction-recovery)** — Interactive React demo making retailer deduction losses visible and actionable
+- **[retail-velocity-decision-tool](https://github.com/MsShawnP/retail-velocity-decision-tool)** — Velocity decision tool for specialty food CEOs
 - **[product-data-audit-demo](https://github.com/MsShawnP/product-data-audit-demo)** — SQL diagnostic queries for auditing product master data quality
 
-## Setup for consuming repos
+## Setup
 
 1. Clone this repo
 2. Run `python scripts/build_db.py`
-3. Place or symlink the database file in the consuming repo's `data/` directory
+3. The database is written to `data/cinderhaven_product_master.db` (~164 MB)
 
 ## Tools
 
-Python, SQLite
+Python 3.10+ (stdlib only), SQLite
 
 ## License
 
