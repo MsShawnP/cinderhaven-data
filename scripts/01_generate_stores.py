@@ -5,12 +5,15 @@ Creates ~1,000 retailer store records plus two aggregated channel rows
 roughly mirror real US retail footprints.
 """
 
+from __future__ import annotations
+
 import random
 import sqlite3
 
 from shared import DB_PATH
 
 SEED = 42
+rng = random.Random(SEED)
 
 REGION_STATES = {
     "Northeast": ["ME", "NH", "VT", "MA", "RI", "CT", "NY", "NJ", "PA"],
@@ -40,19 +43,19 @@ STATE_WEIGHTS = {
 def weighted_state(region: str) -> str:
     states = REGION_STATES[region]
     weights = [STATE_WEIGHTS[s] for s in states]
-    return random.choices(states, weights=weights, k=1)[0]
+    return rng.choices(states, weights=weights, k=1)[0]
 
 
 def weighted_region(distribution: dict) -> str:
     regions = list(distribution.keys())
     weights = list(distribution.values())
-    return random.choices(regions, weights=weights, k=1)[0]
+    return rng.choices(regions, weights=weights, k=1)[0]
 
 
 def weighted_tier(distribution: dict) -> str:
     tiers = list(distribution.keys())
     weights = list(distribution.values())
-    return random.choices(tiers, weights=weights, k=1)[0]
+    return rng.choices(tiers, weights=weights, k=1)[0]
 
 
 def gen_walmart(n=500):
@@ -103,7 +106,7 @@ def gen_whole_foods(n=120):
     for i in range(1, n + 1):
         region = weighted_region(region_dist)
         if region == "West":
-            state = random.choices(pnw_states, weights=pnw_weights, k=1)[0]
+            state = rng.choices(pnw_states, weights=pnw_weights, k=1)[0]
         else:
             state = weighted_state(region)
         rows.append((
@@ -181,86 +184,85 @@ def gen_aggregated():
     ]
 
 
-def main():
-    random.seed(SEED)
+def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    cur.execute("DROP TABLE IF EXISTS stores")
-    cur.execute("""
-        CREATE TABLE stores (
-            store_id              TEXT PRIMARY KEY,
-            retailer              TEXT NOT NULL,
-            chain_name            TEXT NOT NULL,
-            region                TEXT,
-            state                 TEXT,
-            volume_tier           TEXT,
-            is_aggregated_channel INTEGER NOT NULL DEFAULT 0
+        cur.execute("DROP TABLE IF EXISTS stores")
+        cur.execute("""
+            CREATE TABLE stores (
+                store_id              TEXT PRIMARY KEY,
+                retailer              TEXT NOT NULL,
+                chain_name            TEXT NOT NULL,
+                region                TEXT,
+                state                 TEXT,
+                volume_tier           TEXT,
+                is_aggregated_channel INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        rows = []
+        rows.extend(gen_walmart(500))
+        rows.extend(gen_costco(80))
+        rows.extend(gen_whole_foods(120))
+        rows.extend(gen_regional(200))
+        rows.extend(gen_aggregated())
+
+        cur.executemany(
+            "INSERT INTO stores (store_id, retailer, chain_name, region, state, volume_tier, is_aggregated_channel) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
         )
-    """)
+        con.commit()
 
-    rows = []
-    rows.extend(gen_walmart(500))
-    rows.extend(gen_costco(80))
-    rows.extend(gen_whole_foods(120))
-    rows.extend(gen_regional(200))
-    rows.extend(gen_aggregated())
+        print(f"Inserted {len(rows)} rows into stores table.\n")
 
-    cur.executemany(
-        "INSERT INTO stores (store_id, retailer, chain_name, region, state, volume_tier, is_aggregated_channel) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        rows,
-    )
-    con.commit()
+        print("Counts by retailer:")
+        for r, c in cur.execute("SELECT retailer, COUNT(*) FROM stores GROUP BY retailer ORDER BY COUNT(*) DESC"):
+            print(f"  {r:<15} {c}")
 
-    print(f"Inserted {len(rows)} rows into stores table.\n")
+        print("\nWalmart tier breakdown:")
+        for t, c in cur.execute(
+            "SELECT volume_tier, COUNT(*) FROM stores"
+            " WHERE retailer='Walmart' GROUP BY volume_tier ORDER BY volume_tier"
+        ):
+            print(f"  Tier {t}: {c}")
 
-    print("Counts by retailer:")
-    for r, c in cur.execute("SELECT retailer, COUNT(*) FROM stores GROUP BY retailer ORDER BY COUNT(*) DESC"):
-        print(f"  {r:<15} {c}")
+        print("\nWalmart region breakdown:")
+        for region, c in cur.execute(
+            "SELECT region, COUNT(*) FROM stores WHERE retailer='Walmart' GROUP BY region ORDER BY COUNT(*) DESC"
+        ):
+            print(f"  {region:<10} {c}")
 
-    print("\nWalmart tier breakdown:")
-    for t, c in cur.execute(
-        "SELECT volume_tier, COUNT(*) FROM stores WHERE retailer='Walmart' GROUP BY volume_tier ORDER BY volume_tier"
-    ):
-        print(f"  Tier {t}: {c}")
+        print("\nCostco region breakdown:")
+        for region, c in cur.execute(
+            "SELECT region, COUNT(*) FROM stores WHERE retailer='Costco' GROUP BY region ORDER BY COUNT(*) DESC"
+        ):
+            print(f"  {region:<10} {c}")
 
-    print("\nWalmart region breakdown:")
-    for region, c in cur.execute(
-        "SELECT region, COUNT(*) FROM stores WHERE retailer='Walmart' GROUP BY region ORDER BY COUNT(*) DESC"
-    ):
-        print(f"  {region:<10} {c}")
+        print("\nWhole Foods region breakdown:")
+        for region, c in cur.execute(
+            "SELECT region, COUNT(*) FROM stores WHERE retailer='Whole Foods' GROUP BY region ORDER BY COUNT(*) DESC"
+        ):
+            print(f"  {region:<10} {c}")
 
-    print("\nCostco region breakdown:")
-    for region, c in cur.execute(
-        "SELECT region, COUNT(*) FROM stores WHERE retailer='Costco' GROUP BY region ORDER BY COUNT(*) DESC"
-    ):
-        print(f"  {region:<10} {c}")
+        print("\nRegional chain counts:")
+        for chain, c in cur.execute(
+            "SELECT chain_name, COUNT(*) FROM stores "
+            "WHERE retailer NOT IN ('Walmart','Costco','Whole Foods','UNFI','DTC') "
+            "GROUP BY chain_name ORDER BY COUNT(*) DESC"
+        ):
+            print(f"  {chain:<25} {c}")
 
-    print("\nWhole Foods region breakdown:")
-    for region, c in cur.execute(
-        "SELECT region, COUNT(*) FROM stores WHERE retailer='Whole Foods' GROUP BY region ORDER BY COUNT(*) DESC"
-    ):
-        print(f"  {region:<10} {c}")
+        print("\nAggregated channel rows:")
+        for row in cur.execute(
+            "SELECT store_id, retailer, is_aggregated_channel FROM stores WHERE is_aggregated_channel=1"
+        ):
+            print(f"  {row}")
 
-    print("\nRegional chain counts:")
-    for chain, c in cur.execute(
-        "SELECT chain_name, COUNT(*) FROM stores "
-        "WHERE retailer NOT IN ('Walmart','Costco','Whole Foods','UNFI','DTC') "
-        "GROUP BY chain_name ORDER BY COUNT(*) DESC"
-    ):
-        print(f"  {chain:<25} {c}")
-
-    print("\nAggregated channel rows:")
-    for row in cur.execute(
-        "SELECT store_id, retailer, is_aggregated_channel FROM stores WHERE is_aggregated_channel=1"
-    ):
-        print(f"  {row}")
-
-    con.close()
 
 
 if __name__ == "__main__":

@@ -208,210 +208,209 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    cur.execute("DELETE FROM dispute_evidence")
-    cur.execute("DELETE FROM disputes")
+        cur.execute("DELETE FROM dispute_evidence")
+        cur.execute("DELETE FROM disputes")
 
-    # Retailer rules → recovery rate + evidence required + dispute window
-    rules: dict[tuple[str, str], dict] = {}
-    for retailer_id, dt, window, evidence_req, recovery, _ in cur.execute("""
-        SELECT retailer_id, deduction_type, dispute_window_days,
-               evidence_required, typical_recovery_rate, notes
-        FROM retailer_rules
-    """).fetchall():
-        rules[(retailer_id, dt)] = {
-            "window": window,
-            "required": parse_required(evidence_req),
-            "recovery": recovery or 0.30,
+        # Retailer rules → recovery rate + evidence required + dispute window
+        rules: dict[tuple[str, str], dict] = {}
+        for retailer_id, dt, window, evidence_req, recovery, _ in cur.execute("""
+            SELECT retailer_id, deduction_type, dispute_window_days,
+                   evidence_required, typical_recovery_rate, notes
+            FROM retailer_rules
+        """).fetchall():
+            rules[(retailer_id, dt)] = {
+                "window": window,
+                "required": parse_required(evidence_req),
+                "recovery": recovery or 0.30,
+            }
+
+        # Pull deductions joined to pack and shipment context
+        rows = cur.execute("""
+            SELECT
+                d.deduction_id, d.retailer_id, d.deduction_type,
+                d.amount, d.deduction_date, d.dispute_deadline,
+                d.is_vague, d.order_id,
+                s.bol_signed, s.bol_signed_short, s.bol_signed_damaged,
+                s.pod_received, s.asn_sent,
+                p.evidence_format, p.evidence_location,
+                p.evidence_retrieval_minutes, p.label_scannable
+            FROM deductions d
+            LEFT JOIN shipments s ON s.shipment_id = d.shipment_id
+            LEFT JOIN pack_records p ON p.order_id = d.order_id
+        """).fetchall()
+
+        dispute_rows = []
+        evidence_rows = []
+        seq = 0
+        counters = {
+            "filed": 0, "skipped": 0,
+            "pending": 0, "won_full": 0, "won_partial": 0,
+            "lost_evidence": 0, "lost_deadline": 0, "lost_no_response": 0,
+            "lost_other": 0, "abandoned": 0,
         }
 
-    # Pull deductions joined to pack and shipment context
-    rows = cur.execute("""
-        SELECT
-            d.deduction_id, d.retailer_id, d.deduction_type,
-            d.amount, d.deduction_date, d.dispute_deadline,
-            d.is_vague, d.order_id,
-            s.bol_signed, s.bol_signed_short, s.bol_signed_damaged,
-            s.pod_received, s.asn_sent,
-            p.evidence_format, p.evidence_location,
-            p.evidence_retrieval_minutes, p.label_scannable
-        FROM deductions d
-        LEFT JOIN shipments s ON s.shipment_id = d.shipment_id
-        LEFT JOIN pack_records p ON p.order_id = d.order_id
-    """).fetchall()
+        for r in rows:
+            (deduction_id, retailer_id, dt,
+             amount, ded_date_str, deadline_str,
+             is_vague, order_id,
+             bol_signed, bol_short, bol_damaged, pod_received, asn_sent,
+             evidence_format, evidence_location,
+             retrieval_minutes, label_scannable) = r
 
-    dispute_rows = []
-    evidence_rows = []
-    seq = 0
-    counters = {
-        "filed": 0, "skipped": 0,
-        "pending": 0, "won_full": 0, "won_partial": 0,
-        "lost_evidence": 0, "lost_deadline": 0, "lost_no_response": 0,
-        "lost_other": 0, "abandoned": 0,
-    }
+            # Slotting is a negotiated cost, not an operational failure —
+            # never disputed, never has evidence. Skip entirely.
+            if dt == "slotting":
+                counters["skipped"] += 1
+                continue
 
-    for r in rows:
-        (deduction_id, retailer_id, dt,
-         amount, ded_date_str, deadline_str,
-         is_vague, order_id,
-         bol_signed, bol_short, bol_damaged, pod_received, asn_sent,
-         evidence_format, evidence_location,
-         retrieval_minutes, label_scannable) = r
+            # Filing rate, with adjustments
+            rate = FILING_RATE.get(retailer_id, 0.40)
+            if amount < 100:
+                rate -= 0.20
+            if is_vague:
+                rate -= 0.15
+            if bol_signed == 0:
+                rate -= 0.10
+            if evidence_format == "none":
+                rate -= 0.25
+            rate = max(0.05, rate)
 
-        # Slotting is a negotiated cost, not an operational failure —
-        # never disputed, never has evidence. Skip entirely.
-        if dt == "slotting":
-            counters["skipped"] += 1
-            continue
+            if rng.random() >= rate:
+                counters["skipped"] += 1
+                continue
 
-        # Filing rate, with adjustments
-        rate = FILING_RATE.get(retailer_id, 0.40)
-        if amount < 100:
-            rate -= 0.20
-        if is_vague:
-            rate -= 0.15
-        if bol_signed == 0:
-            rate -= 0.10
-        if evidence_format == "none":
-            rate -= 0.25
-        rate = max(0.05, rate)
+            ded_date = date.fromisoformat(ded_date_str)
+            deadline = date.fromisoformat(deadline_str) if deadline_str else None
+            lag = filing_lag_days(rng)
+            filed_date = ded_date + timedelta(days=lag)
+            if filed_date > TODAY:
+                filed_date = TODAY
 
-        if rng.random() >= rate:
-            counters["skipped"] += 1
-            continue
+            was_within_deadline: int | None
+            if deadline is not None:
+                was_within_deadline = 1 if filed_date <= deadline else 0
+            else:
+                was_within_deadline = None
 
-        ded_date = date.fromisoformat(ded_date_str)
-        deadline = date.fromisoformat(deadline_str) if deadline_str else None
-        lag = filing_lag_days(rng)
-        filed_date = ded_date + timedelta(days=lag)
-        if filed_date > TODAY:
-            filed_date = TODAY
+            # Evidence quality
+            eq = determine_evidence_quality(rng, evidence_format, evidence_location)
+            ec = evidence_count_for(rng, eq)
 
-        was_within_deadline: int | None
-        if deadline is not None:
-            was_within_deadline = 1 if filed_date <= deadline else 0
-        else:
-            was_within_deadline = None
+            rule = rules.get((retailer_id, dt), {"recovery": 0.30, "required": []})
+            outcome, recovered = determine_outcome(
+                rng, retailer_id, rule["recovery"], eq, was_within_deadline,
+                filed_date, amount,
+            )
 
-        # Evidence quality
-        eq = determine_evidence_quality(rng, evidence_format, evidence_location)
-        ec = evidence_count_for(rng, eq)
+            closed_date = closed_date_for(rng, outcome, filed_date)
+            labor = labor_hours_for(rng, retrieval_minutes, eq)
+            method = FILING_METHOD.get(retailer_id, "email_buyer")
 
-        rule = rules.get((retailer_id, dt), {"recovery": 0.30, "required": []})
-        outcome, recovered = determine_outcome(
-            rng, retailer_id, rule["recovery"], eq, was_within_deadline,
-            filed_date, amount,
-        )
-
-        closed_date = closed_date_for(rng, outcome, filed_date)
-        labor = labor_hours_for(rng, retrieval_minutes, eq)
-        method = FILING_METHOD.get(retailer_id, "email_buyer")
-
-        seq += 1
-        dispute_id = f"DSP-{seq:07d}"
-        dispute_rows.append((
-            dispute_id, deduction_id,
-            filed_date.isoformat(), method, eq, ec,
-            was_within_deadline, outcome, recovered, closed_date, labor,
-        ))
-        counters["filed"] += 1
-        counters[outcome] += 1
-
-        # Evidence rows: one per required evidence type, plus 0-2 supporting
-        pack_data = {
-            "evidence_format": evidence_format,
-            "evidence_location": evidence_location,
-            "label_scannable": label_scannable,
-        }
-        ship_data = {
-            "bol_signed": bol_signed,
-            "pod_received": pod_received,
-            "asn_sent": asn_sent,
-        }
-
-        seen_types: set[str] = set()
-        for etype in rule["required"]:
-            was_sub, fmt, notes = evidence_availability(etype, pack_data, ship_data, rng)
-            evidence_rows.append((
-                dispute_id, etype,
-                1 if was_sub else 0, 1, fmt, notes,
+            seq += 1
+            dispute_id = f"DSP-{seq:07d}"
+            dispute_rows.append((
+                dispute_id, deduction_id,
+                filed_date.isoformat(), method, eq, ec,
+                was_within_deadline, outcome, recovered, closed_date, labor,
             ))
-            seen_types.add(etype)
-        # Optional supporting items (occasional)
-        if rng.random() < 0.25:
-            extra = rng.choice(["photo", "asn_confirmation", "promo_agreement"])
-            if extra not in seen_types:
-                was_sub, fmt, notes = evidence_availability(extra, pack_data, ship_data, rng)
+            counters["filed"] += 1
+            counters[outcome] += 1
+
+            # Evidence rows: one per required evidence type, plus 0-2 supporting
+            pack_data = {
+                "evidence_format": evidence_format,
+                "evidence_location": evidence_location,
+                "label_scannable": label_scannable,
+            }
+            ship_data = {
+                "bol_signed": bol_signed,
+                "pod_received": pod_received,
+                "asn_sent": asn_sent,
+            }
+
+            seen_types: set[str] = set()
+            for etype in rule["required"]:
+                was_sub, fmt, notes = evidence_availability(etype, pack_data, ship_data, rng)
                 evidence_rows.append((
-                    dispute_id, extra,
-                    1 if was_sub else 0, 0, fmt, notes,
+                    dispute_id, etype,
+                    1 if was_sub else 0, 1, fmt, notes,
                 ))
+                seen_types.add(etype)
+            # Optional supporting items (occasional)
+            if rng.random() < 0.25:
+                extra = rng.choice(["photo", "asn_confirmation", "promo_agreement"])
+                if extra not in seen_types:
+                    was_sub, fmt, notes = evidence_availability(extra, pack_data, ship_data, rng)
+                    evidence_rows.append((
+                        dispute_id, extra,
+                        1 if was_sub else 0, 0, fmt, notes,
+                    ))
 
-    cur.executemany("""
-        INSERT INTO disputes (
-            dispute_id, deduction_id, filed_date, filing_method,
-            evidence_quality, submitted_evidence_count,
-            was_within_deadline, outcome, recovered_amount,
-            closed_date, labor_hours
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, dispute_rows)
-    cur.executemany("""
-        INSERT INTO dispute_evidence (
-            dispute_id, evidence_type, was_submitted, was_required, format, notes
-        ) VALUES (?, ?, ?, ?, ?, ?)
-    """, evidence_rows)
-    con.commit()
+        cur.executemany("""
+            INSERT INTO disputes (
+                dispute_id, deduction_id, filed_date, filing_method,
+                evidence_quality, submitted_evidence_count,
+                was_within_deadline, outcome, recovered_amount,
+                closed_date, labor_hours
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, dispute_rows)
+        cur.executemany("""
+            INSERT INTO dispute_evidence (
+                dispute_id, evidence_type, was_submitted, was_required, format, notes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, evidence_rows)
+        con.commit()
 
-    n_disputes = counters["filed"]
-    total_deductions = n_disputes + counters["skipped"]
-    print(f"Inserted {n_disputes:,} disputes (out of {total_deductions:,} deductions; "
-          f"{n_disputes/total_deductions:.1%} filing rate).")
-    print(f"Inserted {len(evidence_rows):,} dispute_evidence rows.")
-    print()
-    print("Outcomes:")
-    for k in ("won_full", "won_partial", "pending", "lost_evidence",
-              "lost_deadline", "lost_no_response", "lost_other", "abandoned"):
-        v = counters[k]
-        print(f"  {k:<18} {v:>5,}  ({v/n_disputes:.1%})")
+        n_disputes = counters["filed"]
+        total_deductions = n_disputes + counters["skipped"]
+        print(f"Inserted {n_disputes:,} disputes (out of {total_deductions:,} deductions; "
+              f"{n_disputes/total_deductions:.1%} filing rate).")
+        print(f"Inserted {len(evidence_rows):,} dispute_evidence rows.")
+        print()
+        print("Outcomes:")
+        for k in ("won_full", "won_partial", "pending", "lost_evidence",
+                  "lost_deadline", "lost_no_response", "lost_other", "abandoned"):
+            v = counters[k]
+            print(f"  {k:<18} {v:>5,}  ({v/n_disputes:.1%})")
 
-    # Recovery $ by outcome
-    print()
-    print("Recovery dollars:")
-    by_outcome = {}
-    deduction_dollars = 0.0
-    for d in dispute_rows:
-        outcome = d[7]
-        by_outcome[outcome] = by_outcome.get(outcome, 0.0) + (d[8] or 0)
-    total_recovered = sum(by_outcome.values())
-    deduction_dollars = sum(r[3] for r in rows)
-    print(f"  Total deduction $:          ${deduction_dollars:>11,.0f}")
-    print(f"  Total recovered:            ${total_recovered:>11,.0f}  ({total_recovered/deduction_dollars:.1%})")
-    won_full_amt = by_outcome.get("won_full", 0)
-    won_partial_amt = by_outcome.get("won_partial", 0)
-    print(f"  Won full:                   ${won_full_amt:>11,.0f}")
-    print(f"  Won partial:                ${won_partial_amt:>11,.0f}")
+        # Recovery $ by outcome
+        print()
+        print("Recovery dollars:")
+        by_outcome = {}
+        deduction_dollars = 0.0
+        for d in dispute_rows:
+            outcome = d[7]
+            by_outcome[outcome] = by_outcome.get(outcome, 0.0) + (d[8] or 0)
+        total_recovered = sum(by_outcome.values())
+        deduction_dollars = sum(r[3] for r in rows)
+        print(f"  Total deduction $:          ${deduction_dollars:>11,.0f}")
+        print(f"  Total recovered:            ${total_recovered:>11,.0f}  ({total_recovered/deduction_dollars:.1%})")
+        won_full_amt = by_outcome.get("won_full", 0)
+        won_partial_amt = by_outcome.get("won_partial", 0)
+        print(f"  Won full:                   ${won_full_amt:>11,.0f}")
+        print(f"  Won partial:                ${won_partial_amt:>11,.0f}")
 
-    print()
-    print("Evidence quality distribution:")
-    from collections import Counter
-    eqc = Counter(d[4] for d in dispute_rows)
-    for q in ("digital_complete", "digital_partial", "handwritten_only", "none"):
-        v = eqc[q]
-        print(f"  {q:<20} {v:>5,}  ({v/n_disputes:.1%})")
+        print()
+        print("Evidence quality distribution:")
+        from collections import Counter
+        eqc = Counter(d[4] for d in dispute_rows)
+        for q in ("digital_complete", "digital_partial", "handwritten_only", "none"):
+            v = eqc[q]
+            print(f"  {q:<20} {v:>5,}  ({v/n_disputes:.1%})")
 
-    deadline_missed = sum(1 for d in dispute_rows if d[6] == 0)
-    deadline_met = sum(1 for d in dispute_rows if d[6] == 1)
-    deadline_na = sum(1 for d in dispute_rows if d[6] is None)
-    print()
-    print(f"Deadline status: met {deadline_met:,}  missed {deadline_missed:,}  "
-          f"no published window {deadline_na:,}")
+        deadline_missed = sum(1 for d in dispute_rows if d[6] == 0)
+        deadline_met = sum(1 for d in dispute_rows if d[6] == 1)
+        deadline_na = sum(1 for d in dispute_rows if d[6] is None)
+        print()
+        print(f"Deadline status: met {deadline_met:,}  missed {deadline_missed:,}  "
+              f"no published window {deadline_na:,}")
 
-    total_hours = sum(d[10] for d in dispute_rows)
-    print(f"\nTotal labor hours on disputes: {total_hours:,.0f}  (~{total_hours/2080:.1f} FTE)")
+        total_hours = sum(d[10] for d in dispute_rows)
+        print(f"\nTotal labor hours on disputes: {total_hours:,.0f}  (~{total_hours/2080:.1f} FTE)")
 
-    con.close()
 
 
 if __name__ == "__main__":

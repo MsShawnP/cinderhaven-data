@@ -93,113 +93,112 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    cur.execute("DELETE FROM pack_records")
+        cur.execute("DELETE FROM pack_records")
 
-    today = date(2026, 5, 2)  # end of window — drives "age" for evidence-location
+        today = date(2026, 5, 2)  # end of window — drives "age" for evidence-location
 
-    rows = cur.execute("""
-        SELECT order_id, retailer_id, requested_ship_date, total_units
-        FROM orders
-        ORDER BY order_id
-    """).fetchall()
+        rows = cur.execute("""
+            SELECT order_id, retailer_id, requested_ship_date, total_units
+            FROM orders
+            ORDER BY order_id
+        """).fetchall()
 
-    pack_rows = []
-    for order_id, retailer_id, requested_ship_str, total_units in rows:
-        requested_ship = date.fromisoformat(requested_ship_str)
-        # Pack 1-3 days before requested ship
-        pack_dt = requested_ship - timedelta(days=rng.randint(1, 3))
+        pack_rows = []
+        for order_id, retailer_id, requested_ship_str, total_units in rows:
+            requested_ship = date.fromisoformat(requested_ship_str)
+            # Pack 1-3 days before requested ship
+            pack_dt = requested_ship - timedelta(days=rng.randint(1, 3))
 
-        # Label compliance
-        if rng.random() < LABEL_GENERIC_PROB:
-            label_type = "generic"
-        else:
-            # Retailer-compliant: name follows retailer slug
-            label_type = f"{retailer_id}_compliant"
-
-        # Scannability: generic-on-strict-retailer is non-scannable
-        if label_type == "generic" and retailer_id in STRICT_LABEL_RETAILERS:
-            label_scannable = 0
-        else:
-            label_scannable = 1
-
-        # Pick / pack quantities
-        units_picked = total_units
-        if rng.random() < PICK_PACK_MISMATCH_PROB:
-            delta = rng.randint(1, max(2, total_units // 30))
-            # Mismatch can go either way, but short-pack is more common (favor short)
-            if rng.random() < 0.7:
-                units_packed = units_picked - delta
+            # Label compliance
+            if rng.random() < LABEL_GENERIC_PROB:
+                label_type = "generic"
             else:
-                units_packed = units_picked + delta
-            pick_pack_match = 0
-        else:
-            units_packed = units_picked
-            pick_pack_match = 1
+                # Retailer-compliant: name follows retailer slug
+                label_type = f"{retailer_id}_compliant"
 
-        # Pack verification
-        verification = weighted_choice(rng, VERIFICATION_DIST)
-        evidence_format, evidence_location, retrieval_minutes = evidence_for(
-            rng, verification, pack_dt, today
-        )
+            # Scannability: generic-on-strict-retailer is non-scannable
+            if label_type == "generic" and retailer_id in STRICT_LABEL_RETAILERS:
+                label_scannable = 0
+            else:
+                label_scannable = 1
 
-        packer = rng.choice(PACKERS)
+            # Pick / pack quantities
+            units_picked = total_units
+            if rng.random() < PICK_PACK_MISMATCH_PROB:
+                delta = rng.randint(1, max(2, total_units // 30))
+                # Mismatch can go either way, but short-pack is more common (favor short)
+                if rng.random() < 0.7:
+                    units_packed = units_picked - delta
+                else:
+                    units_packed = units_picked + delta
+                pick_pack_match = 0
+            else:
+                units_packed = units_picked
+                pick_pack_match = 1
 
-        pack_rows.append((
-            order_id,
-            None,  # shipment_id — populated by 12_generate_shipments
-            pack_dt.isoformat(),
-            packer,
-            units_picked,
-            units_packed,
-            pick_pack_match,
-            label_type,
-            label_scannable,
-            verification,
-            evidence_format,
-            evidence_location,
-            retrieval_minutes,
-        ))
+            # Pack verification
+            verification = weighted_choice(rng, VERIFICATION_DIST)
+            evidence_format, evidence_location, retrieval_minutes = evidence_for(
+                rng, verification, pack_dt, today
+            )
 
-    cur.executemany("""
-        INSERT INTO pack_records (
-            order_id, shipment_id, pack_date, packer_initials,
-            units_picked, units_packed, units_pick_pack_match,
-            label_type_used, label_scannable, pack_verification,
-            evidence_format, evidence_location, evidence_retrieval_minutes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, pack_rows)
-    con.commit()
+            packer = rng.choice(PACKERS)
 
-    # Summary
-    print(f"Inserted {len(pack_rows):,} pack_records.")
+            pack_rows.append((
+                order_id,
+                None,  # shipment_id — populated by 12_generate_shipments
+                pack_dt.isoformat(),
+                packer,
+                units_picked,
+                units_packed,
+                pick_pack_match,
+                label_type,
+                label_scannable,
+                verification,
+                evidence_format,
+                evidence_location,
+                retrieval_minutes,
+            ))
 
-    print("\nLabel compliance:")
-    print("  generic:          ", sum(1 for r in pack_rows if r[7] == "generic"))
-    print("  retailer-compliant:", sum(1 for r in pack_rows if r[7] != "generic"))
+        cur.executemany("""
+            INSERT INTO pack_records (
+                order_id, shipment_id, pack_date, packer_initials,
+                units_picked, units_packed, units_pick_pack_match,
+                label_type_used, label_scannable, pack_verification,
+                evidence_format, evidence_location, evidence_retrieval_minutes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, pack_rows)
+        con.commit()
 
-    non_scan = sum(1 for r in pack_rows if not r[8])
-    print(f"\nNon-scannable labels: {non_scan:,} ({non_scan / len(pack_rows):.1%})")
-    print("  — these drive Code-22-style perceived shortages at Walmart/Costco")
+        # Summary
+        print(f"Inserted {len(pack_rows):,} pack_records.")
 
-    print("\nPack verification:")
-    from collections import Counter
-    vc = Counter(r[9] for r in pack_rows)
-    for v, n in vc.most_common():
-        print(f"  {v:<14} {n:>5,}  ({n / len(pack_rows):.1%})")
+        print("\nLabel compliance:")
+        print("  generic:          ", sum(1 for r in pack_rows if r[7] == "generic"))
+        print("  retailer-compliant:", sum(1 for r in pack_rows if r[7] != "generic"))
 
-    print("\nEvidence accessibility:")
-    loc = Counter(r[11] for r in pack_rows)
-    for l, n in loc.most_common():
-        label = l if l is not None else "(none — no verification)"
-        print(f"  {label:<28} {n:>5,}  ({n / len(pack_rows):.1%})")
+        non_scan = sum(1 for r in pack_rows if not r[8])
+        print(f"\nNon-scannable labels: {non_scan:,} ({non_scan / len(pack_rows):.1%})")
+        print("  — these drive Code-22-style perceived shortages at Walmart/Costco")
 
-    mismatches = sum(1 for r in pack_rows if not r[6])
-    print(f"\nPick/pack mismatches: {mismatches:,} ({mismatches / len(pack_rows):.1%})")
+        print("\nPack verification:")
+        from collections import Counter
+        vc = Counter(r[9] for r in pack_rows)
+        for v, n in vc.most_common():
+            print(f"  {v:<14} {n:>5,}  ({n / len(pack_rows):.1%})")
 
-    con.close()
+        print("\nEvidence accessibility:")
+        loc = Counter(r[11] for r in pack_rows)
+        for l, n in loc.most_common():
+            label = l if l is not None else "(none — no verification)"
+            print(f"  {label:<28} {n:>5,}  ({n / len(pack_rows):.1%})")
+
+        mismatches = sum(1 for r in pack_rows if not r[6])
+        print(f"\nPick/pack mismatches: {mismatches:,} ({mismatches / len(pack_rows):.1%})")
+
 
 
 if __name__ == "__main__":

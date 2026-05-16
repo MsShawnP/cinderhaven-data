@@ -108,164 +108,163 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    # Authorized (sku, retailer) pairs from distribution_log joined to stores.
-    # Includes any historical authorization (whether currently active or
-    # since deauthorized) — a retailer that ever carried a SKU can still bill
-    # against past shipments, but a retailer that never carried it cannot.
-    auth_rows = cur.execute("""
-        SELECT DISTINCT d.sku, s.retailer
-        FROM distribution_log d
-        JOIN stores s ON s.store_id = d.store_id
-    """).fetchall()
-    authorized: dict[str, set[str]] = {}
-    for sku, retailer in auth_rows:
-        authorized.setdefault(sku, set()).add(retailer)
+        # Authorized (sku, retailer) pairs from distribution_log joined to stores.
+        # Includes any historical authorization (whether currently active or
+        # since deauthorized) — a retailer that ever carried a SKU can still bill
+        # against past shipments, but a retailer that never carried it cannot.
+        auth_rows = cur.execute("""
+            SELECT DISTINCT d.sku, s.retailer
+            FROM distribution_log d
+            JOIN stores s ON s.store_id = d.store_id
+        """).fetchall()
+        authorized: dict[str, set[str]] = {}
+        for sku, retailer in auth_rows:
+            authorized.setdefault(sku, set()).add(retailer)
 
-    # Earliest authorization month per (sku, retailer) — used to suppress
-    # chargebacks dated before the SKU was first carried at that retailer.
-    first_auth_rows = cur.execute("""
-        SELECT d.sku, s.retailer, MIN(d.authorized_date)
-        FROM distribution_log d JOIN stores s ON s.store_id = d.store_id
-        GROUP BY d.sku, s.retailer
-    """).fetchall()
-    first_auth_month: dict[tuple[str, str], str] = {
-        (sku, retailer): ad[:7]  # YYYY-MM
-        for sku, retailer, ad in first_auth_rows if ad
-    }
+        # Earliest authorization month per (sku, retailer) — used to suppress
+        # chargebacks dated before the SKU was first carried at that retailer.
+        first_auth_rows = cur.execute("""
+            SELECT d.sku, s.retailer, MIN(d.authorized_date)
+            FROM distribution_log d JOIN stores s ON s.store_id = d.store_id
+            GROUP BY d.sku, s.retailer
+        """).fetchall()
+        first_auth_month: dict[tuple[str, str], str] = {
+            (sku, retailer): ad[:7]  # YYYY-MM
+            for sku, retailer, ad in first_auth_rows if ad
+        }
 
-    products = cur.execute("""
-        SELECT sku, gtin14, upc, case_length_in, case_width_in, case_height_in,
-               brand_owner, country_of_origin
-        FROM product_master
-    """).fetchall()
+        products = cur.execute("""
+            SELECT sku, gtin14, upc, case_length_in, case_width_in, case_height_in,
+                   brand_owner, country_of_origin
+            FROM product_master
+        """).fetchall()
 
-    # Build per-SKU defect flags
-    sku_defects: dict[str, set[str]] = {}
-    for sku, gtin, upc, l, w, h, brand, country in products:
-        flags = set()
-        if gtin_invalid(gtin):
-            flags.add("invalid_gtin")
-        if upc_missing(upc):
-            flags.add("missing_upc")
-        if l is None or w is None or h is None:
-            flags.add("missing_case_dims")
-        if brand is None or str(brand).strip() == "":
-            flags.add("missing_brand")
-        if country is None or str(country).strip() == "":
-            flags.add("missing_country")
-        sku_defects[sku] = flags
+        # Build per-SKU defect flags
+        sku_defects: dict[str, set[str]] = {}
+        for sku, gtin, upc, l, w, h, brand, country in products:
+            flags = set()
+            if gtin_invalid(gtin):
+                flags.add("invalid_gtin")
+            if upc_missing(upc):
+                flags.add("missing_upc")
+            if l is None or w is None or h is None:
+                flags.add("missing_case_dims")
+            if brand is None or str(brand).strip() == "":
+                flags.add("missing_brand")
+            if country is None or str(country).strip() == "":
+                flags.add("missing_country")
+            sku_defects[sku] = flags
 
-    months = months_in_window()
-    rows: list[tuple[str, str, str, float, str]] = []  # (month, retailer, reason, amount, sku)
+        months = months_in_window()
+        rows: list[tuple[str, str, str, float, str]] = []  # (month, retailer, reason, amount, sku)
 
-    # Defect-driven chargebacks. A retailer can only chargeback a SKU it
-    # actually carries (or carried), so cfg["retailers"] is filtered against
-    # the SKU's authorization set before sampling. Months before the SKU's
-    # first authorization at that retailer are also skipped.
-    for sku, flags in sku_defects.items():
-        sku_auth = authorized.get(sku, set())
-        if not sku_auth:
-            continue
-        for defect in flags:
-            cfg = DEFECT_RULES[defect]
-            reason = cfg["reason"]
-            for retailer, monthly_p, (lo, hi) in cfg["retailers"]:
+        # Defect-driven chargebacks. A retailer can only chargeback a SKU it
+        # actually carries (or carried), so cfg["retailers"] is filtered against
+        # the SKU's authorization set before sampling. Months before the SKU's
+        # first authorization at that retailer are also skipped.
+        for sku, flags in sku_defects.items():
+            sku_auth = authorized.get(sku, set())
+            if not sku_auth:
+                continue
+            for defect in flags:
+                cfg = DEFECT_RULES[defect]
+                reason = cfg["reason"]
+                for retailer, monthly_p, (lo, hi) in cfg["retailers"]:
+                    if retailer not in sku_auth:
+                        continue
+                    pair_first = first_auth_month.get((sku, retailer))
+                    for m in months:
+                        if pair_first is not None and m < pair_first:
+                            continue
+                        if rng.random() < monthly_p:
+                            amount = round(rng.uniform(lo, hi), 2)
+                            rows.append((m, retailer, reason, amount, sku))
+
+        # Operational chargebacks for clean SKUs (no defects). Same authorization
+        # and temporal filter — only retailers that actually carry the SKU can
+        # issue a short-shipment / late-delivery deduction, and only after the
+        # SKU is first authorized there.
+        clean_skus = [s for s, f in sku_defects.items() if not f]
+        for sku in clean_skus:
+            sku_auth = authorized.get(sku, set())
+            for retailer in OPERATIONAL_RETAILERS:
                 if retailer not in sku_auth:
                     continue
                 pair_first = first_auth_month.get((sku, retailer))
                 for m in months:
                     if pair_first is not None and m < pair_first:
                         continue
-                    if rng.random() < monthly_p:
+                    if rng.random() < OPERATIONAL_MONTHLY_PROB:
+                        reason, (lo, hi) = rng.choice(OPERATIONAL_REASONS)
                         amount = round(rng.uniform(lo, hi), 2)
                         rows.append((m, retailer, reason, amount, sku))
 
-    # Operational chargebacks for clean SKUs (no defects). Same authorization
-    # and temporal filter — only retailers that actually carry the SKU can
-    # issue a short-shipment / late-delivery deduction, and only after the
-    # SKU is first authorized there.
-    clean_skus = [s for s, f in sku_defects.items() if not f]
-    for sku in clean_skus:
-        sku_auth = authorized.get(sku, set())
-        for retailer in OPERATIONAL_RETAILERS:
-            if retailer not in sku_auth:
-                continue
-            pair_first = first_auth_month.get((sku, retailer))
-            for m in months:
-                if pair_first is not None and m < pair_first:
-                    continue
-                if rng.random() < OPERATIONAL_MONTHLY_PROB:
-                    reason, (lo, hi) = rng.choice(OPERATIONAL_REASONS)
-                    amount = round(rng.uniform(lo, hi), 2)
-                    rows.append((m, retailer, reason, amount, sku))
-
-    # Replace the chargebacks table
-    cur.execute("DROP TABLE IF EXISTS chargebacks")
-    cur.execute("""
-        CREATE TABLE chargebacks (
-            month    TEXT NOT NULL,
-            retailer TEXT NOT NULL,
-            reason   TEXT NOT NULL,
-            amount   REAL NOT NULL,
-            sku      TEXT NOT NULL
+        # Replace the chargebacks table
+        cur.execute("DROP TABLE IF EXISTS chargebacks")
+        cur.execute("""
+            CREATE TABLE chargebacks (
+                month    TEXT NOT NULL,
+                retailer TEXT NOT NULL,
+                reason   TEXT NOT NULL,
+                amount   REAL NOT NULL,
+                sku      TEXT NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX idx_cb_sku ON chargebacks(sku)")
+        cur.execute("CREATE INDEX idx_cb_month ON chargebacks(month)")
+        cur.executemany(
+            "INSERT INTO chargebacks (month, retailer, reason, amount, sku) VALUES (?, ?, ?, ?, ?)",
+            rows,
         )
-    """)
-    cur.execute("CREATE INDEX idx_cb_sku ON chargebacks(sku)")
-    cur.execute("CREATE INDEX idx_cb_month ON chargebacks(month)")
-    cur.executemany(
-        "INSERT INTO chargebacks (month, retailer, reason, amount, sku) VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    con.commit()
+        con.commit()
 
-    # Summary
-    total = sum(r[3] for r in rows)
-    n_months = len(months)
-    annual = total * (12 / n_months)
-    print(f"Inserted {len(rows):,} chargebacks across {n_months} months "
-          f"({months[0]} to {months[-1]}).")
-    print(f"Total amount: ${total:,.0f}")
-    print(f"Annualized:   ${annual:,.0f}  (target $55,000-$75,000)\n")
+        # Summary
+        total = sum(r[3] for r in rows)
+        n_months = len(months)
+        annual = total * (12 / n_months)
+        print(f"Inserted {len(rows):,} chargebacks across {n_months} months "
+              f"({months[0]} to {months[-1]}).")
+        print(f"Total amount: ${total:,.0f}")
+        print(f"Annualized:   ${annual:,.0f}  (target $55,000-$75,000)\n")
 
-    print("Chargebacks by reason:")
-    by_reason = Counter()
-    amt_by_reason: dict[str, float] = {}
-    for m, ret, reason, amt, sku in rows:
-        by_reason[reason] += 1
-        amt_by_reason[reason] = amt_by_reason.get(reason, 0) + amt
-    for reason, n in by_reason.most_common():
-        print(f"  {reason:<25} {n:>4}  ${amt_by_reason[reason]:>9,.0f}")
+        print("Chargebacks by reason:")
+        by_reason = Counter()
+        amt_by_reason: dict[str, float] = {}
+        for m, ret, reason, amt, sku in rows:
+            by_reason[reason] += 1
+            amt_by_reason[reason] = amt_by_reason.get(reason, 0) + amt
+        for reason, n in by_reason.most_common():
+            print(f"  {reason:<25} {n:>4}  ${amt_by_reason[reason]:>9,.0f}")
 
-    print("\nChargebacks by retailer:")
-    by_retailer = Counter()
-    amt_by_ret: dict[str, float] = {}
-    for m, ret, reason, amt, sku in rows:
-        by_retailer[ret] += 1
-        amt_by_ret[ret] = amt_by_ret.get(ret, 0) + amt
-    for ret, n in by_retailer.most_common():
-        print(f"  {ret:<15} {n:>4}  ${amt_by_ret[ret]:>9,.0f}")
+        print("\nChargebacks by retailer:")
+        by_retailer = Counter()
+        amt_by_ret: dict[str, float] = {}
+        for m, ret, reason, amt, sku in rows:
+            by_retailer[ret] += 1
+            amt_by_ret[ret] = amt_by_ret.get(ret, 0) + amt
+        for ret, n in by_retailer.most_common():
+            print(f"  {ret:<15} {n:>4}  ${amt_by_ret[ret]:>9,.0f}")
 
-    print("\nDefect-driven SKU summary:")
-    n_skus_charged = len({r[4] for r in rows})
-    n_clean_charged = len({r[4] for r in rows if not sku_defects[r[4]]})
-    print(f"  SKUs with at least one chargeback: {n_skus_charged}")
-    print(f"  Clean SKUs hit by operational charges: {n_clean_charged}")
-    print(f"  Defect SKUs total: {sum(1 for f in sku_defects.values() if f)}")
-    print(f"  Clean SKUs total:  {sum(1 for f in sku_defects.values() if not f)}")
+        print("\nDefect-driven SKU summary:")
+        n_skus_charged = len({r[4] for r in rows})
+        n_clean_charged = len({r[4] for r in rows if not sku_defects[r[4]]})
+        print(f"  SKUs with at least one chargeback: {n_skus_charged}")
+        print(f"  Clean SKUs hit by operational charges: {n_clean_charged}")
+        print(f"  Defect SKUs total: {sum(1 for f in sku_defects.values() if f)}")
+        print(f"  Clean SKUs total:  {sum(1 for f in sku_defects.values() if not f)}")
 
-    # Top 5 SKUs by chargeback amount — these should be the worst defect carriers
-    print("\nTop 5 SKUs by chargeback total:")
-    sku_totals: dict[str, float] = {}
-    for m, ret, reason, amt, sku in rows:
-        sku_totals[sku] = sku_totals.get(sku, 0) + amt
-    for sku, amt in sorted(sku_totals.items(), key=lambda kv: -kv[1])[:5]:
-        flags = ", ".join(sorted(sku_defects[sku])) or "no defects (operational only)"
-        print(f"  {sku}  ${amt:>7,.0f}   defects: {flags}")
+        # Top 5 SKUs by chargeback amount — these should be the worst defect carriers
+        print("\nTop 5 SKUs by chargeback total:")
+        sku_totals: dict[str, float] = {}
+        for m, ret, reason, amt, sku in rows:
+            sku_totals[sku] = sku_totals.get(sku, 0) + amt
+        for sku, amt in sorted(sku_totals.items(), key=lambda kv: -kv[1])[:5]:
+            flags = ", ".join(sorted(sku_defects[sku])) or "no defects (operational only)"
+            print(f"  {sku}  ${amt:>7,.0f}   defects: {flags}")
 
-    con.close()
 
 
 if __name__ == "__main__":
