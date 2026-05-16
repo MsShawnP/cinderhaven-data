@@ -12,18 +12,13 @@ for integration with the deduction pipeline.
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES
+
 SEED = 42
 
 WEEK_1 = date(2024, 5, 6)
 TOTAL_WEEKS = 104
-
-REGIONAL_CHAIN_NAMES = {
-    "Green Basket Market", "Harbor Fresh", "Prairie Provisions",
-    "Mountain Pantry Co", "Southside Grocers",
-}
 
 # Retailer-specific promo "personality": frequency, type mix, depth ranges,
 # duration. Each retailer behaves differently in real life — Walmart runs many

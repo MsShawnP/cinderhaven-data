@@ -6,9 +6,8 @@ report. Intended to be run after all generation scripts complete.
 
 import sqlite3
 import statistics
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES
 
 EXPECTED_COUNTS = {
     "product_master":   (90, 90),
@@ -19,7 +18,7 @@ EXPECTED_COUNTS = {
     "scan_data":        (900_000, 1_400_000),
 }
 
-REGIONAL_CHAINS = "('Green Basket Market','Harbor Fresh','Prairie Provisions','Mountain Pantry Co','Southside Grocers')"
+REGIONAL_CHAINS_SQL = "(" + ",".join(f"'{c}'" for c in sorted(REGIONAL_CHAIN_NAMES)) + ")"
 
 PASS_COUNT = 0
 FAIL_COUNT = 0
@@ -88,7 +87,7 @@ def main():
                 JOIN stores s ON dl.store_id = s.store_id
                 WHERE dl.sku = p.sku
                   AND (s.retailer = p.retailer
-                       OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS}))
+                       OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS_SQL}))
             )
         )
     """).fetchone()[0]
@@ -164,7 +163,7 @@ def main():
                 SELECT p.sku, p.start_week, p.end_week, s.store_id
                 FROM promos p
                 JOIN stores s ON s.retailer = p.retailer
-                            OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS})
+                            OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS_SQL})
             )
             SELECT
               AVG(CASE WHEN d.week_ending BETWEEN DATE(a.start_week, '-28 days')
@@ -196,7 +195,7 @@ def main():
                 SELECT p.sku, p.start_week, p.end_week, s.store_id
                 FROM promos p
                 JOIN stores s ON s.retailer = p.retailer
-                            OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS})
+                            OR (p.retailer = 'Regional' AND s.retailer IN {REGIONAL_CHAINS_SQL})
             )
             SELECT
               AVG(CASE WHEN d.week_ending BETWEEN DATE(a.start_week, '-28 days')

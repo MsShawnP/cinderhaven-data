@@ -26,9 +26,8 @@ from __future__ import annotations
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
 SEED = 48
 
 DATE_CAP = date(2026, 5, 2)

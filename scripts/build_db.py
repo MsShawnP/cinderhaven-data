@@ -40,8 +40,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from shared import DB_PATH
+
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "data" / "cinderhaven_product_master.db"
 SEED_SQL = Path(__file__).resolve().parent / "seed_product_master.sql"
 
 # Order matters: each script reads from tables built by earlier ones.

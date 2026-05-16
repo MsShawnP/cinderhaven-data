@@ -17,15 +17,10 @@ from __future__ import annotations
 import random
 import sqlite3
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES
+
 SEED = 42
-
-REGIONAL_CHAINS = (
-    "Green Basket Market", "Harbor Fresh", "Prairie Provisions",
-    "Mountain Pantry Co", "Southside Grocers",
-)
 
 # Map a stores.retailer value to the sku_costs.wholesale_<retailer> column
 RETAILER_TO_COLUMN = {
@@ -41,7 +36,7 @@ RETAILER_TO_COLUMN = {
 def category_for_store_retailer(retailer: str) -> str | None:
     if retailer in RETAILER_TO_COLUMN:
         return retailer
-    if retailer in REGIONAL_CHAINS:
+    if retailer in REGIONAL_CHAIN_NAMES:
         return "Regional"
     return None
 
@@ -98,7 +93,7 @@ def main() -> None:
         # rows so joins to stores work without special-case logic. All chains
         # share the same wholesale_regional price.
         if cat == "Regional":
-            return sorted(REGIONAL_CHAINS)
+            return sorted(REGIONAL_CHAIN_NAMES)
         return [cat]
 
     for (sku, cat), launch_d in sku_channel_launch.items():

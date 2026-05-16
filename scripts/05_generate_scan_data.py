@@ -25,9 +25,9 @@ import random
 import sqlite3
 from collections import defaultdict
 from datetime import date, timedelta
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH, REGIONAL_CHAIN_NAMES, gtin_invalid, upc_missing
+
 SEED = 42
 
 WEEK_1_START = date(2024, 5, 6)   # Monday
@@ -51,11 +51,6 @@ LINE_SEASONALITY = {
     "Artisan Sauces":       SAUCE_MONTHLY,
     "Specialty Condiments": COND_MONTHLY,
     "Pantry Staples":       PANTRY_MONTHLY,
-}
-
-REGIONAL_CHAIN_NAMES = {
-    "Green Basket Market", "Harbor Fresh", "Prairie Provisions",
-    "Mountain Pantry Co", "Southside Grocers",
 }
 
 RETAILER_MULT = {
@@ -89,23 +84,6 @@ DTC_ANNUAL_REVENUE = 800_000
 # Bumped from 0.62 to 0.66 to offset the ~5% revenue reduction from the
 # retailer-specific wholesale prices added to sku_costs.
 VELOCITY_SCALE = 0.66
-
-
-# --- Defect detection (mirrors scripts 02 / 02b) ---
-
-def gtin_invalid(gtin: str | None) -> bool:
-    if not gtin or len(gtin) != 14 or not gtin.isdigit():
-        return True
-    d = [int(c) for c in gtin]
-    s = sum(d[i] * (1 if (12 - i) % 2 == 0 else 3) for i in range(13))
-    return (10 - s % 10) % 10 != d[13]
-
-
-def upc_missing(upc: str | None) -> bool:
-    if upc is None:
-        return True
-    s = str(upc).strip()
-    return s == "" or s in ("TBD", "N/A", "0", "00000000000", "000000000000")
 
 
 def date_to_week(d_str):

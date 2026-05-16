@@ -7,9 +7,8 @@ Trade-spend rates are set per channel within typical specialty-food ranges.
 
 import random
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
 SEED = 42
 
 # Gross margin targets by product line (margin = (wholesale - cogs) / wholesale)

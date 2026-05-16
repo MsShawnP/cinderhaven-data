@@ -15,7 +15,8 @@ Run after the base pipeline (01–06) so the base tables exist.
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
 

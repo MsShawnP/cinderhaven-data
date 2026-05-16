@@ -10,9 +10,8 @@ from __future__ import annotations
 import sqlite3
 import sys
 from datetime import date
-from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "cinderhaven_product_master.db"
+from shared import DB_PATH
 
 TARGETS = {
     "orders":            (4000, 6500),
