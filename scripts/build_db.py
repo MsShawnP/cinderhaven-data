@@ -76,15 +76,12 @@ def seed_product_master() -> None:
             "Cannot bootstrap product_master without it."
         )
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
-    try:
+    with sqlite3.connect(DB_PATH) as con:
         with SEED_SQL.open(encoding="utf-8") as f:
             con.executescript(f.read())
         con.commit()
         n = con.execute("SELECT COUNT(*) FROM product_master").fetchone()[0]
         print(f"  [OK] Seeded product_master ({n} rows)")
-    finally:
-        con.close()
 
 
 def run_script(name: str) -> None:

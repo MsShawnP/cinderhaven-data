@@ -196,117 +196,116 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    # Wipe any prior orders/lines (idempotent regen)
-    cur.execute("DELETE FROM order_lines")
-    cur.execute("DELETE FROM orders")
+        # Wipe any prior orders/lines (idempotent regen)
+        cur.execute("DELETE FROM order_lines")
+        cur.execute("DELETE FROM orders")
 
-    auth = authorized_skus(con)
-    first_auth = first_auth_date(con)
-    prices = load_prices(con)
+        auth = authorized_skus(con)
+        first_auth = first_auth_date(con)
+        prices = load_prices(con)
 
-    # Sanity: warn about retailers with no authorized SKUs
-    for slug in RETAILER_CONFIG:
-        if not auth.get(slug):
-            print(f"  [WARN] {slug}: no authorized SKUs; skipping.")
+        # Sanity: warn about retailers with no authorized SKUs
+        for slug in RETAILER_CONFIG:
+            if not auth.get(slug):
+                print(f"  [WARN] {slug}: no authorized SKUs; skipping.")
 
-    months = months_in_window()
-    orders: list[tuple] = []
-    order_lines: list[tuple] = []
-    seq = {slug: 0 for slug in RETAILER_CONFIG}
+        months = months_in_window()
+        orders: list[tuple] = []
+        order_lines: list[tuple] = []
+        seq = {slug: 0 for slug in RETAILER_CONFIG}
 
-    for slug, cfg in RETAILER_CONFIG.items():
-        sku_pool = auth.get(slug, [])
-        if not sku_pool:
-            continue
-        for y, m in months:
-            n = max(0, int(rng.gauss(cfg["per_month"], cfg["per_month"] ** 0.5)))
-            for _ in range(n):
-                seq[slug] += 1
-                po_date = random_date_in_month(rng, y, m)
-                po_number = make_po_number(rng, slug, seq[slug])
-                order_id = f"{slug.upper()[:4]}-{po_date.year}-{seq[slug]:06d}"
+        for slug, cfg in RETAILER_CONFIG.items():
+            sku_pool = auth.get(slug, [])
+            if not sku_pool:
+                continue
+            for y, m in months:
+                n = max(0, int(rng.gauss(cfg["per_month"], cfg["per_month"] ** 0.5)))
+                for _ in range(n):
+                    seq[slug] += 1
+                    po_date = random_date_in_month(rng, y, m)
+                    po_number = make_po_number(rng, slug, seq[slug])
+                    order_id = f"{slug.upper()[:4]}-{po_date.year}-{seq[slug]:06d}"
 
-                # Filter SKU pool to those authorized as of po_date
-                eligible = [
-                    sku for sku in sku_pool
-                    if (slug, sku) not in first_auth or first_auth[(slug, sku)] <= po_date
-                ]
-                if not eligible:
-                    seq[slug] -= 1
-                    continue
+                    # Filter SKU pool to those authorized as of po_date
+                    eligible = [
+                        sku for sku in sku_pool
+                        if (slug, sku) not in first_auth or first_auth[(slug, sku)] <= po_date
+                    ]
+                    if not eligible:
+                        seq[slug] -= 1
+                        continue
 
-                n_lines = rng.randint(cfg["lines"][0], cfg["lines"][1])
-                n_lines = min(n_lines, len(eligible))
-                line_skus = rng.sample(eligible, n_lines)
+                    n_lines = rng.randint(cfg["lines"][0], cfg["lines"][1])
+                    n_lines = min(n_lines, len(eligible))
+                    line_skus = rng.sample(eligible, n_lines)
 
-                u_min, u_max, u_mode = cfg["units"]
-                total_units = 0
-                total_value = 0.0
-                line_rows = []
-                for sku in line_skus:
-                    units = max(u_min, int(rng.triangular(u_min, u_max, u_mode)))
-                    price = prices.get((slug, sku), 5.50)
-                    line_total = round(units * price, 2)
-                    total_units += units
-                    total_value += line_total
-                    line_rows.append((order_id, sku, units, round(price, 2), line_total))
+                    u_min, u_max, u_mode = cfg["units"]
+                    total_units = 0
+                    total_value = 0.0
+                    line_rows = []
+                    for sku in line_skus:
+                        units = max(u_min, int(rng.triangular(u_min, u_max, u_mode)))
+                        price = prices.get((slug, sku), 5.50)
+                        line_total = round(units * price, 2)
+                        total_units += units
+                        total_value += line_total
+                        line_rows.append((order_id, sku, units, round(price, 2), line_total))
 
-                ship_lead = rng.randint(5, 14)
-                requested_ship = po_date + timedelta(days=ship_lead)
-                window_start = requested_ship + timedelta(days=2)
-                window_end   = requested_ship + timedelta(days=5)
+                    ship_lead = rng.randint(5, 14)
+                    requested_ship = po_date + timedelta(days=ship_lead)
+                    window_start = requested_ship + timedelta(days=2)
+                    window_end   = requested_ship + timedelta(days=5)
 
-                orders.append((
-                    order_id, slug, po_number,
-                    po_date.isoformat(),
-                    requested_ship.isoformat(),
-                    window_start.isoformat(),
-                    window_end.isoformat(),
-                    None,  # dc_id — populated later if needed
-                    total_units,
-                    round(total_value, 2),
-                ))
-                order_lines.extend(line_rows)
+                    orders.append((
+                        order_id, slug, po_number,
+                        po_date.isoformat(),
+                        requested_ship.isoformat(),
+                        window_start.isoformat(),
+                        window_end.isoformat(),
+                        None,  # dc_id — populated later if needed
+                        total_units,
+                        round(total_value, 2),
+                    ))
+                    order_lines.extend(line_rows)
 
-    cur.executemany("""
-        INSERT INTO orders (
-            order_id, retailer_id, po_number, po_date, requested_ship_date,
-            requested_delivery_window_start, requested_delivery_window_end,
-            dc_id, total_units, total_value
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, orders)
-    cur.executemany("""
-        INSERT INTO order_lines (order_id, sku, units_ordered, unit_price, line_total)
-        VALUES (?, ?, ?, ?, ?)
-    """, order_lines)
-    con.commit()
+        cur.executemany("""
+            INSERT INTO orders (
+                order_id, retailer_id, po_number, po_date, requested_ship_date,
+                requested_delivery_window_start, requested_delivery_window_end,
+                dc_id, total_units, total_value
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, orders)
+        cur.executemany("""
+            INSERT INTO order_lines (order_id, sku, units_ordered, unit_price, line_total)
+            VALUES (?, ?, ?, ?, ?)
+        """, order_lines)
+        con.commit()
 
-    # Summary
-    n_orders = len(orders)
-    n_lines = len(order_lines)
-    total_value = sum(o[9] for o in orders)
-    months_in_window_count = len(months)
-    annualized = total_value * 12 / months_in_window_count
+        # Summary
+        n_orders = len(orders)
+        n_lines = len(order_lines)
+        total_value = sum(o[9] for o in orders)
+        months_in_window_count = len(months)
+        annualized = total_value * 12 / months_in_window_count
 
-    print(f"\nInserted {n_orders:,} orders and {n_lines:,} order_lines.")
-    print(f"Total order value: ${total_value:,.0f}")
-    print(f"Annualized:        ${annualized:,.0f}  (target $20–30M)")
-    print()
-    print("Orders by retailer:")
-    by_ret: dict[str, list[float]] = {}
-    for o in orders:
-        by_ret.setdefault(o[1], []).append(o[9])
-    for slug in RETAILER_CONFIG:
-        vals = by_ret.get(slug, [])
-        if not vals:
-            continue
-        ann = sum(vals) * 12 / months_in_window_count
-        print(f"  {slug:<22} {len(vals):>5}  ${sum(vals):>12,.0f}   ann ${ann:>11,.0f}")
+        print(f"\nInserted {n_orders:,} orders and {n_lines:,} order_lines.")
+        print(f"Total order value: ${total_value:,.0f}")
+        print(f"Annualized:        ${annualized:,.0f}  (target $20–30M)")
+        print()
+        print("Orders by retailer:")
+        by_ret: dict[str, list[float]] = {}
+        for o in orders:
+            by_ret.setdefault(o[1], []).append(o[9])
+        for slug in RETAILER_CONFIG:
+            vals = by_ret.get(slug, [])
+            if not vals:
+                continue
+            ann = sum(vals) * 12 / months_in_window_count
+            print(f"  {slug:<22} {len(vals):>5}  ${sum(vals):>12,.0f}   ann ${ann:>11,.0f}")
 
-    con.close()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ Includes promo_cost (manufacturer's funded amount) and funding_mechanism
 for integration with the deduction pipeline.
 """
 
+from __future__ import annotations
+
 import random
 import sqlite3
 from datetime import date, timedelta
@@ -16,6 +18,7 @@ from datetime import date, timedelta
 from shared import DB_PATH, REGIONAL_CHAIN_NAMES
 
 SEED = 42
+rng = random.Random(SEED)
 
 WEEK_1 = date(2024, 5, 6)
 TOTAL_WEEKS = 104
@@ -169,251 +172,249 @@ def season_for_date(d: date) -> str:
 def weighted_choice(items):
     keys = [k for k, _ in items]
     weights = [w for _, w in items]
-    return random.choices(keys, weights=weights, k=1)[0]
+    return rng.choices(keys, weights=weights, k=1)[0]
 
 
-def main():
-    random.seed(SEED)
+def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    # --- Build SKU → set of retailer categories (only currently-active dist) ---
-    products = cur.execute("SELECT sku, product_line FROM product_master ORDER BY sku").fetchall()
-    sku_to_line = {sku: pl for sku, pl in products}
+        # --- Build SKU → set of retailer categories (only currently-active dist) ---
+        products = cur.execute("SELECT sku, product_line FROM product_master ORDER BY sku").fetchall()
+        sku_to_line = {sku: pl for sku, pl in products}
 
-    sku_retailers: dict = {}
-    for sku, store_ret in cur.execute("""
-        SELECT DISTINCT d.sku, s.retailer
-        FROM distribution_log d
-        JOIN stores s ON d.store_id = s.store_id
-        WHERE d.deauthorized_date IS NULL
-    """).fetchall():
-        if store_ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "DTC"):
-            cat = store_ret
-        elif store_ret in REGIONAL_CHAIN_NAMES:
-            cat = "Regional"
-        else:
-            continue
-        sku_retailers.setdefault(sku, set()).add(cat)
-
-    # --- Group weeks by season ---
-    weeks_by_season: dict = {"Q4": [], "Summer": [], "BTS": [], "Spring": [], "Offpeak": []}
-    for w in range(1, TOTAL_WEEKS + 1):
-        weeks_by_season[season_for_date(week_start(w))].append(w)
-
-    # --- Pick SKUs that get NO promos (long-tail, ~12 SKUs) ---
-    all_skus = list(sku_to_line.keys())
-    random.shuffle(all_skus)
-    no_promo_skus = set(all_skus[:12])
-
-    # --- Build per-retailer promo plan ---
-    # Each retailer contributes its configured n_promos with its own type/depth
-    # mix. promo_plan is a list of (retailer, promo_type) tuples we will then
-    # iterate to assign weeks, SKUs, etc.
-    promo_plan: list[tuple[str, str]] = []
-    for retailer, profile in RETAILER_PROMO_PROFILE.items():
-        n = profile["n_promos"]
-        type_counts: dict = {}
-        total_w = sum(w for _, w in profile["type_weights"])
-        for ptype, w in profile["type_weights"]:
-            type_counts[ptype] = round(n * w / total_w)
-        # Adjust to match exact n
-        diff = n - sum(type_counts.values())
-        if diff != 0:
-            # Add/remove from the highest-weighted type
-            most = max(profile["type_weights"], key=lambda kv: kv[1])[0]
-            type_counts[most] += diff
-        for ptype, c in type_counts.items():
-            promo_plan.extend([(retailer, ptype)] * c)
-    random.shuffle(promo_plan)
-
-    promo_rows = []
-
-    for i, (retailer, promo_type) in enumerate(promo_plan, start=1):
-        profile = RETAILER_PROMO_PROFILE[retailer]
-
-        # Eligible SKUs for this retailer (excluding no-promo set)
-        candidates = [s for s, rets in sku_retailers.items()
-                      if retailer in rets and s not in no_promo_skus]
-        if not candidates:
-            # Fall back: pick any retailer with eligible candidates
-            for fb in RETAILER_PROMO_PROFILE:
-                fb_cands = [s for s, rets in sku_retailers.items()
-                            if fb in rets and s not in no_promo_skus]
-                if fb_cands:
-                    retailer = fb
-                    candidates = fb_cands
-                    profile = RETAILER_PROMO_PROFILE[fb]
-                    break
-            if not candidates:
+        sku_retailers: dict = {}
+        for sku, store_ret in cur.execute("""
+            SELECT DISTINCT d.sku, s.retailer
+            FROM distribution_log d
+            JOIN stores s ON d.store_id = s.store_id
+            WHERE d.deauthorized_date IS NULL
+        """).fetchall():
+            if store_ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "DTC"):
+                cat = store_ret
+            elif store_ret in REGIONAL_CHAIN_NAMES:
+                cat = "Regional"
+            else:
                 continue
+            sku_retailers.setdefault(sku, set()).add(cat)
 
-        duration = weighted_choice(profile["duration_weights"])
-        season = weighted_choice(SEASON_WEIGHTS)
-        wk = random.choice(weeks_by_season[season])
-        if wk + duration - 1 > TOTAL_WEEKS:
-            wk = TOTAL_WEEKS - duration + 1
+        # --- Group weeks by season ---
+        weeks_by_season: dict = {"Q4": [], "Summer": [], "BTS": [], "Spring": [], "Offpeak": []}
+        for w in range(1, TOTAL_WEEKS + 1):
+            weeks_by_season[season_for_date(week_start(w))].append(w)
 
-        start = week_start(wk).isoformat()
-        end = week_start(wk + duration - 1).isoformat()
+        # --- Pick SKUs that get NO promos (long-tail, ~12 SKUs) ---
+        all_skus = list(sku_to_line.keys())
+        rng.shuffle(all_skus)
+        no_promo_skus = set(all_skus[:12])
 
-        lo, hi = profile["depth_overrides"][promo_type]
-        discount = round(random.uniform(lo, hi), 3)
-        scope = "all" if random.random() < 0.7 else "subset"
+        # --- Build per-retailer promo plan ---
+        # Each retailer contributes its configured n_promos with its own type/depth
+        # mix. promo_plan is a list of (retailer, promo_type) tuples we will then
+        # iterate to assign weeks, SKUs, etc.
+        promo_plan: list[tuple[str, str]] = []
+        for retailer, profile in RETAILER_PROMO_PROFILE.items():
+            n = profile["n_promos"]
+            type_counts: dict = {}
+            total_w = sum(w for _, w in profile["type_weights"])
+            for ptype, w in profile["type_weights"]:
+                type_counts[ptype] = round(n * w / total_w)
+            # Adjust to match exact n
+            diff = n - sum(type_counts.values())
+            if diff != 0:
+                # Add/remove from the highest-weighted type
+                most = max(profile["type_weights"], key=lambda kv: kv[1])[0]
+                type_counts[most] += diff
+            for ptype, c in type_counts.items():
+                promo_plan.extend([(retailer, ptype)] * c)
+        rng.shuffle(promo_plan)
 
-        # Line promo (~25%) → 3-5 SKUs from same product line, else single SKU
-        skus_for_promo = []
-        if random.random() < 0.25:
-            random.shuffle(candidates)
-            for seed_sku in candidates:
-                pl = sku_to_line[seed_sku]
-                pl_candidates = [s for s in candidates if sku_to_line[s] == pl]
-                if len(pl_candidates) >= 3:
-                    n = random.randint(3, min(5, len(pl_candidates)))
-                    skus_for_promo = random.sample(pl_candidates, n)
-                    break
-        if not skus_for_promo:
-            skus_for_promo = [random.choice(candidates)]
+        promo_rows = []
 
-        promo_id = f"PROMO-{i:04d}"
+        for i, (retailer, promo_type) in enumerate(promo_plan, start=1):
+            profile = RETAILER_PROMO_PROFILE[retailer]
 
-        # Funding mechanism: retailer × promo type specific
-        fm_weights = FUNDING_MECHANISM_WEIGHTS.get(retailer, FUNDING_MECHANISM_WEIGHTS["Regional"])
-        fm_type_weights = fm_weights.get(promo_type, [("bill_back", 50), ("off_invoice", 50)])
-        funding_mechanism = weighted_choice(fm_type_weights)
+            # Eligible SKUs for this retailer (excluding no-promo set)
+            candidates = [s for s, rets in sku_retailers.items()
+                          if retailer in rets and s not in no_promo_skus]
+            if not candidates:
+                # Fall back: pick any retailer with eligible candidates
+                for fb in RETAILER_PROMO_PROFILE:
+                    fb_cands = [s for s, rets in sku_retailers.items()
+                                if fb in rets and s not in no_promo_skus]
+                    if fb_cands:
+                        retailer = fb
+                        candidates = fb_cands
+                        profile = RETAILER_PROMO_PROFILE[fb]
+                        break
+                if not candidates:
+                    continue
 
-        # Promo cost: discount_depth × estimated volume × wholesale price
-        # ~5% of events NULL to represent unconfirmed TBD costs (expands
-        # to ~10% of rows due to line-promo and regional expansion)
-        if random.random() < 0.05:
-            promo_cost = None
-        else:
-            est_weekly_cases = random.uniform(20, 80)
-            est_volume = est_weekly_cases * duration
-            avg_wholesale = random.uniform(4.50, 8.50)
-            promo_cost = round(discount * est_volume * avg_wholesale * random.uniform(0.85, 1.15), 2)
+            duration = weighted_choice(profile["duration_weights"])
+            season = weighted_choice(SEASON_WEIGHTS)
+            wk = rng.choice(weeks_by_season[season])
+            if wk + duration - 1 > TOTAL_WEEKS:
+                wk = TOTAL_WEEKS - duration + 1
 
-        # "Regional" is a category aggregating 5 independent chains. Each
-        # Regional trade event is executed at all 5 chains simultaneously
-        # under one negotiated discount, so we expand to 5 chain-level rows
-        # at write time (sharing promo_id/sku/dates/discount). All other
-        # retailers emit a single row.
-        emit_retailers = (sorted(REGIONAL_CHAIN_NAMES)
-                          if retailer == "Regional" else [retailer])
-        for sku in skus_for_promo:
-            for emit_r in emit_retailers:
-                promo_rows.append((
-                    promo_id, sku, emit_r, scope, start, end,
-                    duration, discount, promo_type,
-                    promo_cost, funding_mechanism,
-                ))
+            start = week_start(wk).isoformat()
+            end = week_start(wk + duration - 1).isoformat()
 
-    # --- Write to DB ---
-    cur.execute("DROP TABLE IF EXISTS promotions")
-    cur.execute("""
-        CREATE TABLE promotions (
-            promo_id            TEXT NOT NULL,
-            sku                 TEXT NOT NULL,
-            retailer            TEXT NOT NULL,
-            store_scope         TEXT NOT NULL,
-            start_week          TEXT NOT NULL,
-            end_week            TEXT NOT NULL,
-            duration_weeks      INTEGER NOT NULL,
-            discount_depth_pct  REAL NOT NULL,
-            promo_type          TEXT NOT NULL,
-            promo_cost          REAL,
-            funding_mechanism   TEXT,
-            PRIMARY KEY (promo_id, sku, retailer)
-        )
-    """)
-    cur.execute("CREATE INDEX idx_promo_sku ON promotions(sku)")
-    cur.execute("CREATE INDEX idx_promo_retailer ON promotions(retailer)")
-    cur.executemany("""
-        INSERT INTO promotions
-            (promo_id, sku, retailer, store_scope, start_week, end_week,
-             duration_weeks, discount_depth_pct, promo_type,
-             promo_cost, funding_mechanism)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, promo_rows)
-    con.commit()
+            lo, hi = profile["depth_overrides"][promo_type]
+            discount = round(rng.uniform(lo, hi), 3)
+            scope = "all" if rng.random() < 0.7 else "subset"
 
-    # --- Summary ---
-    n_events = cur.execute("SELECT COUNT(DISTINCT promo_id) FROM promotions").fetchone()[0]
-    n_rows = cur.execute("SELECT COUNT(*) FROM promotions").fetchone()[0]
-    print(f"Total promo events (distinct promo_id): {n_events}")
-    print(f"Total promo rows (sku-level entries):   {n_rows}\n")
+            # Line promo (~25%) → 3-5 SKUs from same product line, else single SKU
+            skus_for_promo = []
+            if rng.random() < 0.25:
+                rng.shuffle(candidates)
+                for seed_sku in candidates:
+                    pl = sku_to_line[seed_sku]
+                    pl_candidates = [s for s in candidates if sku_to_line[s] == pl]
+                    if len(pl_candidates) >= 3:
+                        n = rng.randint(3, min(5, len(pl_candidates)))
+                        skus_for_promo = rng.sample(pl_candidates, n)
+                        break
+            if not skus_for_promo:
+                skus_for_promo = [rng.choice(candidates)]
 
-    print("Events by promo type:")
-    for t, c in cur.execute("""
-        SELECT promo_type, COUNT(DISTINCT promo_id)
-        FROM promotions GROUP BY promo_type
-        ORDER BY COUNT(DISTINCT promo_id) DESC
-    """).fetchall():
-        pct = 100 * c / n_events
-        print(f"  {t:<10} {c:>3}  ({pct:.1f}%)")
+            promo_id = f"PROMO-{i:04d}"
 
-    print("\nEvents by retailer:")
-    for r, c in cur.execute("""
-        SELECT retailer, COUNT(DISTINCT promo_id)
-        FROM promotions GROUP BY retailer
-        ORDER BY COUNT(DISTINCT promo_id) DESC
-    """).fetchall():
-        pct = 100 * c / n_events
-        print(f"  {r:<12} {c:>3}  ({pct:.1f}%)")
+            # Funding mechanism: retailer × promo type specific
+            fm_weights = FUNDING_MECHANISM_WEIGHTS.get(retailer, FUNDING_MECHANISM_WEIGHTS["Regional"])
+            fm_type_weights = fm_weights.get(promo_type, [("bill_back", 50), ("off_invoice", 50)])
+            funding_mechanism = weighted_choice(fm_type_weights)
 
-    print("\nEvents by quarter:")
-    quarter_counts: dict = {}
-    for _, start in cur.execute("SELECT DISTINCT promo_id, start_week FROM promotions").fetchall():
-        y, m, _ = map(int, start.split("-"))
-        q = (m - 1) // 3 + 1
-        key = f"{y} Q{q}"
-        quarter_counts[key] = quarter_counts.get(key, 0) + 1
-    for k in sorted(quarter_counts):
-        print(f"  {k}: {quarter_counts[k]}")
+            # Promo cost: discount_depth × estimated volume × wholesale price
+            # ~5% of events NULL to represent unconfirmed TBD costs (expands
+            # to ~10% of rows due to line-promo and regional expansion)
+            if rng.random() < 0.05:
+                promo_cost = None
+            else:
+                est_weekly_cases = rng.uniform(20, 80)
+                est_volume = est_weekly_cases * duration
+                avg_wholesale = rng.uniform(4.50, 8.50)
+                promo_cost = round(discount * est_volume * avg_wholesale * rng.uniform(0.85, 1.15), 2)
 
-    print("\nAverage discount depth by promo type:")
-    for t, avg in cur.execute("""
-        SELECT promo_type, AVG(discount_depth_pct)
-        FROM promotions GROUP BY promo_type ORDER BY promo_type
-    """).fetchall():
-        print(f"  {t:<10} {avg*100:5.2f}%")
+            # "Regional" is a category aggregating 5 independent chains. Each
+            # Regional trade event is executed at all 5 chains simultaneously
+            # under one negotiated discount, so we expand to 5 chain-level rows
+            # at write time (sharing promo_id/sku/dates/discount). All other
+            # retailers emit a single row.
+            emit_retailers = (sorted(REGIONAL_CHAIN_NAMES)
+                              if retailer == "Regional" else [retailer])
+            for sku in skus_for_promo:
+                for emit_r in emit_retailers:
+                    promo_rows.append((
+                        promo_id, sku, emit_r, scope, start, end,
+                        duration, discount, promo_type,
+                        promo_cost, funding_mechanism,
+                    ))
 
-    print("\nDuration distribution:")
-    for dur, c in cur.execute("""
-        SELECT duration_weeks, COUNT(DISTINCT promo_id)
-        FROM promotions GROUP BY duration_weeks ORDER BY duration_weeks
-    """).fetchall():
-        print(f"  {dur} week(s): {c}")
+        # --- Write to DB ---
+        cur.execute("DROP TABLE IF EXISTS promotions")
+        cur.execute("""
+            CREATE TABLE promotions (
+                promo_id            TEXT NOT NULL,
+                sku                 TEXT NOT NULL,
+                retailer            TEXT NOT NULL,
+                store_scope         TEXT NOT NULL,
+                start_week          TEXT NOT NULL,
+                end_week            TEXT NOT NULL,
+                duration_weeks      INTEGER NOT NULL,
+                discount_depth_pct  REAL NOT NULL,
+                promo_type          TEXT NOT NULL,
+                promo_cost          REAL,
+                funding_mechanism   TEXT,
+                PRIMARY KEY (promo_id, sku, retailer)
+            )
+        """)
+        cur.execute("CREATE INDEX idx_promo_sku ON promotions(sku)")
+        cur.execute("CREATE INDEX idx_promo_retailer ON promotions(retailer)")
+        cur.executemany("""
+            INSERT INTO promotions
+                (promo_id, sku, retailer, store_scope, start_week, end_week,
+                 duration_weeks, discount_depth_pct, promo_type,
+                 promo_cost, funding_mechanism)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, promo_rows)
+        con.commit()
 
-    print("\nLine promos vs single-SKU promos:")
-    for n_skus, c in cur.execute("""
-        SELECT n_skus, COUNT(*) FROM (
-            SELECT promo_id, COUNT(*) AS n_skus FROM promotions GROUP BY promo_id
-        ) GROUP BY n_skus ORDER BY n_skus
-    """).fetchall():
-        label = "single-SKU" if n_skus == 1 else f"{n_skus}-SKU line promo"
-        print(f"  {label}: {c}")
+        # --- Summary ---
+        n_events = cur.execute("SELECT COUNT(DISTINCT promo_id) FROM promotions").fetchone()[0]
+        n_rows = cur.execute("SELECT COUNT(*) FROM promotions").fetchone()[0]
+        print(f"Total promo events (distinct promo_id): {n_events}")
+        print(f"Total promo rows (sku-level entries):   {n_rows}\n")
 
-    print(f"\nSKUs with no promos: {len(no_promo_skus)}")
-    skus_with_promos = cur.execute("SELECT COUNT(DISTINCT sku) FROM promotions").fetchone()[0]
-    print(f"SKUs with at least one promo: {skus_with_promos}")
+        print("Events by promo type:")
+        for t, c in cur.execute("""
+            SELECT promo_type, COUNT(DISTINCT promo_id)
+            FROM promotions GROUP BY promo_type
+            ORDER BY COUNT(DISTINCT promo_id) DESC
+        """).fetchall():
+            pct = 100 * c / n_events
+            print(f"  {t:<10} {c:>3}  ({pct:.1f}%)")
 
-    # Funding mechanism summary
-    print("\nFunding mechanism distribution:")
-    for fm, c in cur.execute("""
-        SELECT funding_mechanism, COUNT(*)
-        FROM promotions WHERE funding_mechanism IS NOT NULL
-        GROUP BY funding_mechanism ORDER BY COUNT(*) DESC
-    """).fetchall():
-        print(f"  {fm:<14} {c:>4}")
-    n_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NOT NULL").fetchone()[0]
-    n_null_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NULL").fetchone()[0]
-    print(f"\npromo_cost populated: {n_cost}  NULL (TBD): {n_null_cost}")
+        print("\nEvents by retailer:")
+        for r, c in cur.execute("""
+            SELECT retailer, COUNT(DISTINCT promo_id)
+            FROM promotions GROUP BY retailer
+            ORDER BY COUNT(DISTINCT promo_id) DESC
+        """).fetchall():
+            pct = 100 * c / n_events
+            print(f"  {r:<12} {c:>3}  ({pct:.1f}%)")
 
-    con.close()
+        print("\nEvents by quarter:")
+        quarter_counts: dict = {}
+        for _, start in cur.execute("SELECT DISTINCT promo_id, start_week FROM promotions").fetchall():
+            y, m, _ = map(int, start.split("-"))
+            q = (m - 1) // 3 + 1
+            key = f"{y} Q{q}"
+            quarter_counts[key] = quarter_counts.get(key, 0) + 1
+        for k in sorted(quarter_counts):
+            print(f"  {k}: {quarter_counts[k]}")
+
+        print("\nAverage discount depth by promo type:")
+        for t, avg in cur.execute("""
+            SELECT promo_type, AVG(discount_depth_pct)
+            FROM promotions GROUP BY promo_type ORDER BY promo_type
+        """).fetchall():
+            print(f"  {t:<10} {avg*100:5.2f}%")
+
+        print("\nDuration distribution:")
+        for dur, c in cur.execute("""
+            SELECT duration_weeks, COUNT(DISTINCT promo_id)
+            FROM promotions GROUP BY duration_weeks ORDER BY duration_weeks
+        """).fetchall():
+            print(f"  {dur} week(s): {c}")
+
+        print("\nLine promos vs single-SKU promos:")
+        for n_skus, c in cur.execute("""
+            SELECT n_skus, COUNT(*) FROM (
+                SELECT promo_id, COUNT(*) AS n_skus FROM promotions GROUP BY promo_id
+            ) GROUP BY n_skus ORDER BY n_skus
+        """).fetchall():
+            label = "single-SKU" if n_skus == 1 else f"{n_skus}-SKU line promo"
+            print(f"  {label}: {c}")
+
+        print(f"\nSKUs with no promos: {len(no_promo_skus)}")
+        skus_with_promos = cur.execute("SELECT COUNT(DISTINCT sku) FROM promotions").fetchone()[0]
+        print(f"SKUs with at least one promo: {skus_with_promos}")
+
+        # Funding mechanism summary
+        print("\nFunding mechanism distribution:")
+        for fm, c in cur.execute("""
+            SELECT funding_mechanism, COUNT(*)
+            FROM promotions WHERE funding_mechanism IS NOT NULL
+            GROUP BY funding_mechanism ORDER BY COUNT(*) DESC
+        """).fetchall():
+            print(f"  {fm:<14} {c:>4}")
+        n_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NOT NULL").fetchone()[0]
+        n_null_cost = cur.execute("SELECT COUNT(*) FROM promotions WHERE promo_cost IS NULL").fetchone()[0]
+        print(f"\npromo_cost populated: {n_cost}  NULL (TBD): {n_null_cost}")
+
 
 
 if __name__ == "__main__":

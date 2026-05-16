@@ -82,153 +82,152 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
+    with sqlite3.connect(DB_PATH) as con:
+        cur = con.cursor()
 
-    cur.execute("DELETE FROM post_audit_claims")
-    cur.execute("DELETE FROM deductions WHERE is_post_audit = 1")
+        cur.execute("DELETE FROM post_audit_claims")
+        cur.execute("DELETE FROM deductions WHERE is_post_audit = 1")
 
-    # Look up codes per retailer
-    codes_by_retailer: dict[str, dict[str, tuple[str, str]]] = {}
-    for cid, rid, code, dt in cur.execute(
-        "SELECT code_id, retailer_id, code, deduction_type FROM deduction_codes"
-    ).fetchall():
-        codes_by_retailer.setdefault(rid, {})[dt] = (cid, code)
+        # Look up codes per retailer
+        codes_by_retailer: dict[str, dict[str, tuple[str, str]]] = {}
+        for cid, rid, code, dt in cur.execute(
+            "SELECT code_id, retailer_id, code, deduction_type FROM deduction_codes"
+        ).fetchall():
+            codes_by_retailer.setdefault(rid, {})[dt] = (cid, code)
 
-    rules = {
-        (rid, dt): window
-        for rid, dt, window in cur.execute(
-            "SELECT retailer_id, deduction_type, dispute_window_days FROM retailer_rules"
-        ).fetchall()
-    }
+        rules = {
+            (rid, dt): window
+            for rid, dt, window in cur.execute(
+                "SELECT retailer_id, deduction_type, dispute_window_days FROM retailer_rules"
+            ).fetchall()
+        }
 
-    # Find current max deduction_id seq to continue numbering
-    max_seq = cur.execute(
-        "SELECT MAX(CAST(SUBSTR(deduction_id, 5) AS INTEGER)) FROM deductions"
-    ).fetchone()[0] or 0
+        # Find current max deduction_id seq to continue numbering
+        max_seq = cur.execute(
+            "SELECT MAX(CAST(SUBSTR(deduction_id, 5) AS INTEGER)) FROM deductions"
+        ).fetchone()[0] or 0
 
-    deduction_rows = []
-    claim_rows = []
-    claim_seq = 0
+        deduction_rows = []
+        claim_rows = []
+        claim_seq = 0
 
-    for retailer_id, profile in PROFILES.items():
-        for _ in range(profile["audits"]):
-            # Audit period: 6-12 months wide, ending 12-30 months before now
-            audit_period_end_offset = rng.randint(*profile["lookback_months_range"])
-            audit_period_end = date(2026, 5, 1) - timedelta(days=audit_period_end_offset * 30)
-            period_width = rng.randint(180, 365)
-            audit_period_start = audit_period_end - timedelta(days=period_width)
+        for retailer_id, profile in PROFILES.items():
+            for _ in range(profile["audits"]):
+                # Audit period: 6-12 months wide, ending 12-30 months before now
+                audit_period_end_offset = rng.randint(*profile["lookback_months_range"])
+                audit_period_end = date(2026, 5, 1) - timedelta(days=audit_period_end_offset * 30)
+                period_width = rng.randint(180, 365)
+                audit_period_start = audit_period_end - timedelta(days=period_width)
 
-            # The post-audit deductions hit Cinderhaven in 2026 (recent)
-            # Spread across Jan-May 2026
-            audit_hit_month = rng.randint(1, 5)
-            audit_hit_day = rng.randint(1, 28)
-            audit_hit_date = date(2026, audit_hit_month, audit_hit_day)
+                # The post-audit deductions hit Cinderhaven in 2026 (recent)
+                # Spread across Jan-May 2026
+                audit_hit_month = rng.randint(1, 5)
+                audit_hit_day = rng.randint(1, 28)
+                audit_hit_date = date(2026, audit_hit_month, audit_hit_day)
 
-            n_deductions = rng.randint(*profile["ds_per_audit"])
-            claim_type = rng.choice(list(CLAIM_TO_DEDUCTION.keys()))
-            deduction_type = CLAIM_TO_DEDUCTION[claim_type]
+                n_deductions = rng.randint(*profile["ds_per_audit"])
+                claim_type = rng.choice(list(CLAIM_TO_DEDUCTION.keys()))
+                deduction_type = CLAIM_TO_DEDUCTION[claim_type]
 
-            for _ in range(n_deductions):
-                max_seq += 1
-                deduction_id = f"DED-{max_seq:07d}"
-                amount = round(rng.uniform(*profile["amount_range"]), 2)
-                ded_date = audit_hit_date + timedelta(days=rng.randint(0, 14))
-                if ded_date > DATE_CAP:
-                    ded_date = DATE_CAP - timedelta(days=rng.randint(1, 7))
+                for _ in range(n_deductions):
+                    max_seq += 1
+                    deduction_id = f"DED-{max_seq:07d}"
+                    amount = round(rng.uniform(*profile["amount_range"]), 2)
+                    ded_date = audit_hit_date + timedelta(days=rng.randint(0, 14))
+                    if ded_date > DATE_CAP:
+                        ded_date = DATE_CAP - timedelta(days=rng.randint(1, 7))
 
-                # Lookback months: from audit_period_end to deduction_date
-                lookback_months = max(1, (ded_date - audit_period_end).days // 30)
+                    # Lookback months: from audit_period_end to deduction_date
+                    lookback_months = max(1, (ded_date - audit_period_end).days // 30)
 
-                # Code
-                code_pair = codes_by_retailer.get(retailer_id, {}).get(deduction_type)
-                if code_pair:
-                    code_id, code_remitted = code_pair
-                else:
-                    code_id, code_remitted = None, ""
+                    # Code
+                    code_pair = codes_by_retailer.get(retailer_id, {}).get(deduction_type)
+                    if code_pair:
+                        code_id, code_remitted = code_pair
+                    else:
+                        code_id, code_remitted = None, ""
 
-                # Window from rules
-                window = rules.get((retailer_id, deduction_type))
-                deadline = (ded_date + timedelta(days=window)).isoformat() if window else None
+                    # Window from rules
+                    window = rules.get((retailer_id, deduction_type))
+                    deadline = (ded_date + timedelta(days=window)).isoformat() if window else None
 
-                # Description varies by claim type
-                period = f"{audit_period_start.isoformat()} to {audit_period_end.isoformat()}"
-                desc = {
-                    "pricing":    f"Post-audit pricing recovery — period {period}",
-                    "allowance":  f"Post-audit allowance reconciliation — period {period}",
-                    "freight":    f"Post-audit freight chargeback — period {period}",
-                    "compliance": f"Post-audit compliance findings — period {period}",
-                }[claim_type]
+                    # Description varies by claim type
+                    period = f"{audit_period_start.isoformat()} to {audit_period_end.isoformat()}"
+                    desc = {
+                        "pricing":    f"Post-audit pricing recovery — period {period}",
+                        "allowance":  f"Post-audit allowance reconciliation — period {period}",
+                        "freight":    f"Post-audit freight chargeback — period {period}",
+                        "compliance": f"Post-audit compliance findings — period {period}",
+                    }[claim_type]
 
-                # Post-audit claims are *not* vague — they carry an audit
-                # period and claim type, so the supplier knows what the
-                # claim references even if they dispute it. is_vague stays
-                # 0 to keep the schema convention "is_vague implies
-                # deduction_type='vague'" intact.
-                deduction_rows.append((
-                    deduction_id, retailer_id, None, None, deduction_type,
-                    code_id, code_remitted, desc,
-                    amount, ded_date.isoformat(), deadline,
-                    0, 1,  # is_vague=0, is_post_audit=1
-                    0,  # is_double_dip
-                    None,  # remittance_id — repopulated by 13
-                ))
+                    # Post-audit claims are *not* vague — they carry an audit
+                    # period and claim type, so the supplier knows what the
+                    # claim references even if they dispute it. is_vague stays
+                    # 0 to keep the schema convention "is_vague implies
+                    # deduction_type='vague'" intact.
+                    deduction_rows.append((
+                        deduction_id, retailer_id, None, None, deduction_type,
+                        code_id, code_remitted, desc,
+                        amount, ded_date.isoformat(), deadline,
+                        0, 1,  # is_vague=0, is_post_audit=1
+                        0,  # is_double_dip
+                        None,  # remittance_id — repopulated by 13
+                    ))
 
-                claim_seq += 1
-                claim_id = f"PA-{claim_seq:05d}"
-                claim_rows.append((
-                    claim_id, deduction_id, profile["auditor"],
-                    audit_period_start.isoformat(),
-                    audit_period_end.isoformat(),
-                    claim_type, lookback_months,
-                ))
+                    claim_seq += 1
+                    claim_id = f"PA-{claim_seq:05d}"
+                    claim_rows.append((
+                        claim_id, deduction_id, profile["auditor"],
+                        audit_period_start.isoformat(),
+                        audit_period_end.isoformat(),
+                        claim_type, lookback_months,
+                    ))
 
-    cur.executemany("""
-        INSERT INTO deductions (
-            deduction_id, retailer_id, order_id, shipment_id, deduction_type,
-            code_id, code_as_remitted, remittance_description,
-            amount, deduction_date, dispute_deadline,
-            is_vague, is_post_audit, is_double_dip, remittance_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, deduction_rows)
-    cur.executemany("""
-        INSERT INTO post_audit_claims (
-            claim_id, deduction_id, auditor_name,
-            audit_period_start, audit_period_end,
-            claim_type, lookback_months
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, claim_rows)
-    con.commit()
+        cur.executemany("""
+            INSERT INTO deductions (
+                deduction_id, retailer_id, order_id, shipment_id, deduction_type,
+                code_id, code_as_remitted, remittance_description,
+                amount, deduction_date, dispute_deadline,
+                is_vague, is_post_audit, is_double_dip, remittance_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, deduction_rows)
+        cur.executemany("""
+            INSERT INTO post_audit_claims (
+                claim_id, deduction_id, auditor_name,
+                audit_period_start, audit_period_end,
+                claim_type, lookback_months
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, claim_rows)
+        con.commit()
 
-    n_d = len(deduction_rows)
-    n_c = len(claim_rows)
-    total = sum(d[8] for d in deduction_rows)
+        n_d = len(deduction_rows)
+        n_c = len(claim_rows)
+        total = sum(d[8] for d in deduction_rows)
 
-    print(f"Inserted {n_d:,} post-audit deductions and {n_c:,} post_audit_claims rows.")
-    print(f"Total post-audit deduction value: ${total:,.0f}")
-    print()
-    print("By retailer:")
-    by_ret: dict[str, tuple[int, float]] = {}
-    for d in deduction_rows:
-        rid = d[1]
-        c, a = by_ret.get(rid, (0, 0.0))
-        by_ret[rid] = (c + 1, a + d[8])
-    for rid, (c, a) in sorted(by_ret.items()):
-        print(f"  {rid:<10} {c:>3} deductions  ${a:>10,.0f}")
-    print()
-    print("By claim type:")
-    from collections import Counter
-    cc = Counter(c[5] for c in claim_rows)
-    for ct, n in cc.most_common():
-        print(f"  {ct:<12} {n:>3}")
-    print()
-    print(f"Lookback months range: {min(c[6] for c in claim_rows)} – {max(c[6] for c in claim_rows)}")
+        print(f"Inserted {n_d:,} post-audit deductions and {n_c:,} post_audit_claims rows.")
+        print(f"Total post-audit deduction value: ${total:,.0f}")
+        print()
+        print("By retailer:")
+        by_ret: dict[str, tuple[int, float]] = {}
+        for d in deduction_rows:
+            rid = d[1]
+            c, a = by_ret.get(rid, (0, 0.0))
+            by_ret[rid] = (c + 1, a + d[8])
+        for rid, (c, a) in sorted(by_ret.items()):
+            print(f"  {rid:<10} {c:>3} deductions  ${a:>10,.0f}")
+        print()
+        print("By claim type:")
+        from collections import Counter
+        cc = Counter(c[5] for c in claim_rows)
+        for ct, n in cc.most_common():
+            print(f"  {ct:<12} {n:>3}")
+        print()
+        print(f"Lookback months range: {min(c[6] for c in claim_rows)} – {max(c[6] for c in claim_rows)}")
 
-    print()
-    print("NOTE: re-run scripts 14 (remittances) and 15 (disputes) to "
-          "bundle these into payment events and surface them in dispute data.")
+        print()
+        print("NOTE: re-run scripts 14 (remittances) and 15 (disputes) to "
+              "bundle these into payment events and surface them in dispute data.")
 
-    con.close()
 
 
 if __name__ == "__main__":

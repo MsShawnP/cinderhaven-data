@@ -12,6 +12,8 @@ Applies two SQL files in sequence:
 Run after the base pipeline (01–06) so the base tables exist.
 """
 
+from __future__ import annotations
+
 import sqlite3
 from pathlib import Path
 
@@ -34,8 +36,7 @@ def main() -> None:
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DB_PATH}")
 
-    con = sqlite3.connect(DB_PATH)
-    try:
+    with sqlite3.connect(DB_PATH) as con:
         print("Seeding deduction tables...")
         apply_sql(con, "seed_deduction_schema.sql")
         apply_sql(con, "seed_deduction_static.sql")
@@ -44,8 +45,6 @@ def main() -> None:
         for table in ("retailers", "retailer_rules", "deduction_codes", "edi_requirements"):
             n = cur.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             print(f"  {table:<22} {n:>4} rows")
-    finally:
-        con.close()
 
     print("Done.")
 
