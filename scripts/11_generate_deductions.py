@@ -21,7 +21,7 @@ The central deduction record. Drives a realistic distribution of:
     dispute_deadline, recovery_rate=0)
 
 Volume target: $750K-$1.2M annualized (3-5% of $25M wholesale revenue).
-Roughly 3,500-5,500 standard deductions over 18 months, plus ~50-70
+Roughly 12,000-14,000 standard deductions over 36 months, plus ~50-70
 slotting events.
 
 Deduction date is set 14-45 days after delivery_date (retailer-aware
@@ -43,7 +43,7 @@ from shared import DB_PATH
 
 SEED = 45
 
-DATE_CAP = date(2026, 5, 2)
+DATE_CAP = date(2027, 1, 2)
 
 # Per-retailer deduction probability + amount config.
 # rates: probability that THIS deduction type fires for an order, given
@@ -60,13 +60,13 @@ PROFILES = {
     "walmart": {
         "short_ship_real":         0.85,   # of bol-short or pick-mismatch
         "short_ship_perceived":    0.45,   # of non-scannable-label orders
-        "label_fine":              0.20,   # of generic-label orders (sampled)
+        "label_fine":              0.22,   # of generic-label orders (sampled)
         "pallet_fine":             0.04,
         "damaged":                 0.85,   # of bol-damaged
         "late_delivery_window":    0.55,   # of orders that missed window
-        "promo_billback":          0.06,
-        "vague":                   0.03,
-        "spoilage":                0.025,
+        "promo_billback":          0.09,
+        "vague":                   0.04,
+        "spoilage":                0.035,
         "slotting_events":         3,
         "slotting_amount_range":   (5500, 13000),
         "remittance_lag":          (28, 42),
@@ -106,9 +106,9 @@ PROFILES = {
         "pallet_fine":             0.02,
         "damaged":                 0.65,
         "late_delivery_window":    0.30,
-        "promo_billback":          0.10,   # MCB-heavy
-        "vague":                   0.06,
-        "spoilage":                0.025,  # unsaleables on natural side
+        "promo_billback":          0.14,   # MCB-heavy
+        "vague":                   0.08,
+        "spoilage":                0.035,  # unsaleables on natural side
         "slotting_events":         5,
         "slotting_amount_range":   (2000, 4500),
         "remittance_lag":          (7, 21),  # weekly cadence
@@ -120,9 +120,9 @@ PROFILES = {
         "pallet_fine":             0.02,
         "damaged":                 0.80,
         "late_delivery_window":    0.30,
-        "promo_billback":          0.10,
-        "vague":                   0.06,
-        "spoilage":                0.020,
+        "promo_billback":          0.14,
+        "vague":                   0.08,
+        "spoilage":                0.030,
         "slotting_events":         5,
         "slotting_amount_range":   (1500, 3500),
         "remittance_lag":          (10, 21),  # biweekly
@@ -612,7 +612,7 @@ def main() -> None:
         # Summary
         n = len(deductions)
         total = sum(d[8] for d in deductions)
-        months = 18
+        months = 36
         annualized = total * 12 / months
 
         print(f"Inserted {n:,} deductions.")

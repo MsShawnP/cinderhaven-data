@@ -98,7 +98,7 @@ def main() -> None:
 
         cur.execute("DELETE FROM pack_records")
 
-        today = date(2026, 5, 2)  # end of window — drives "age" for evidence-location
+        today = date(2027, 1, 2)  # end of window — drives "age" for evidence-location
 
         rows = cur.execute("""
             SELECT order_id, retailer_id, requested_ship_date, total_units

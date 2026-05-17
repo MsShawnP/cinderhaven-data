@@ -1,6 +1,6 @@
 """Generate the `promotions` table.
 
-Builds ~75 promotional events across the 104-week window, with retailer mix,
+Builds ~80 promotional events across the 157-week window, with retailer mix,
 promo type mix, seasonal concentration, and a few line-level promos that span
 multiple SKUs in the same product line.
 
@@ -20,8 +20,8 @@ from shared import DB_PATH, REGIONAL_CHAIN_NAMES
 SEED = 42
 rng = random.Random(SEED)
 
-WEEK_1 = date(2024, 5, 6)
-TOTAL_WEEKS = 104
+WEEK_1 = date(2024, 1, 1)
+TOTAL_WEEKS = 157
 
 # Retailer-specific promo "personality": frequency, type mix, depth ranges,
 # duration. Each retailer behaves differently in real life — Walmart runs many
@@ -83,6 +83,17 @@ RETAILER_PROMO_PROFILE = {
         },
         "duration_weights": [(1, 25), (2, 50), (3, 20), (4, 5)],
     },
+    "KeHE": {   # distributor — similar to UNFI
+        "n_promos": 5,
+        "type_weights": [("TPR", 55), ("Feature", 30), ("Display", 15), ("BOGO", 0)],
+        "depth_overrides": {
+            "TPR":     (0.10, 0.16),
+            "Display": (0.08, 0.12),
+            "Feature": (0.14, 0.20),
+            "BOGO":    (0.50, 0.50),
+        },
+        "duration_weights": [(1, 30), (2, 45), (3, 20), (4, 5)],
+    },
     "DTC": {    # email/holiday-driven flash sales
         "n_promos": 5,
         "type_weights": [("TPR", 50), ("Feature", 30), ("BOGO", 20), ("Display", 0)],
@@ -143,6 +154,12 @@ FUNDING_MECHANISM_WEIGHTS = {
         "Feature": [("mcb", 40), ("bill_back", 35), ("off_invoice", 15), ("scan_down", 10)],
         "BOGO":    [("mcb", 50), ("bill_back", 30), ("off_invoice", 20)],
     },
+    "KeHE": {
+        "TPR":     [("mcb", 40), ("bill_back", 40), ("off_invoice", 15), ("scan_down", 5)],
+        "Display": [("mcb", 35), ("bill_back", 35), ("fixed_fee", 30)],
+        "Feature": [("mcb", 40), ("bill_back", 35), ("off_invoice", 15), ("scan_down", 10)],
+        "BOGO":    [("mcb", 45), ("bill_back", 35), ("off_invoice", 20)],
+    },
     "DTC": {
         "TPR":     [("off_invoice", 80), ("fixed_fee", 20)],
         "Display": [("fixed_fee", 70), ("off_invoice", 30)],
@@ -193,7 +210,7 @@ def main() -> None:
             JOIN stores s ON d.store_id = s.store_id
             WHERE d.deauthorized_date IS NULL
         """).fetchall():
-            if store_ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "DTC"):
+            if store_ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "KeHE", "DTC"):
                 cat = store_ret
             elif store_ret in REGIONAL_CHAIN_NAMES:
                 cat = "Regional"
@@ -206,10 +223,11 @@ def main() -> None:
         for w in range(1, TOTAL_WEEKS + 1):
             weeks_by_season[season_for_date(week_start(w))].append(w)
 
-        # --- Pick SKUs that get NO promos (long-tail, ~12 SKUs) ---
+        # --- Pick SKUs that get NO promos (long-tail, ~13% of catalog) ---
         all_skus = list(sku_to_line.keys())
         rng.shuffle(all_skus)
-        no_promo_skus = set(all_skus[:12])
+        n_no_promo = max(1, round(len(all_skus) * 0.13))
+        no_promo_skus = set(all_skus[:n_no_promo])
 
         # --- Build per-retailer promo plan ---
         # Each retailer contributes its configured n_promos with its own type/depth

@@ -32,9 +32,9 @@ from shared import DB_PATH, REGIONAL_CHAIN_NAMES, gtin_invalid, upc_missing
 
 SEED = 42
 
-WEEK_1_START = date(2024, 5, 6)   # Monday
-WEEK_1_END = date(2024, 5, 11)    # Saturday
-TOTAL_WEEKS = 104
+WEEK_1_START = date(2024, 1, 1)   # Monday
+WEEK_1_END = date(2024, 1, 6)    # Saturday
+TOTAL_WEEKS = 157
 
 # Monthly seasonality multipliers per product line (1=Jan ... 12=Dec)
 SAUCE_MONTHLY = {
@@ -76,6 +76,9 @@ PROMO_LIFT_RANGES = {
 # (~$4-5M/yr wholesale). 70 equivalent doors lands UNFI in that range given the
 # tier'd base velocities below.
 UNFI_EQUIVALENT_DOORS = 70
+
+# KeHE: smaller distributor, ~10-12% of total business
+KEHE_EQUIVALENT_DOORS = 50
 
 # Direct-to-consumer wholesale-equivalent revenue, split by SKU base velocity.
 DTC_ANNUAL_REVENUE = 800_000
@@ -127,7 +130,7 @@ def find_ghost_pairs(
     ghost_rng = random.Random(SEED + 7)
     physical_stores_by_sku: dict[str, list[str]] = {}
     for sku, sid, _ad, _dd in dist_rows:
-        if sid in ("UNFI-AGG", "DTC-AGG"):
+        if sid in ("UNFI-AGG", "KEHE-AGG", "DTC-AGG"):
             continue
         physical_stores_by_sku.setdefault(sku, []).append(sid)
     severe_skus = sorted(
@@ -233,6 +236,15 @@ def compute_unfi_bulk_weeks(rng: random.Random) -> set[int]:
     return weeks
 
 
+def compute_kehe_bulk_weeks(rng: random.Random) -> set[int]:
+    weeks: set[int] = set()
+    nxt = rng.randint(3, 6)
+    while nxt <= TOTAL_WEEKS:
+        weeks.add(nxt)
+        nxt += rng.randint(5, 7)
+    return weeks
+
+
 def compute_dtc_spike_weeks(
     rng: random.Random, week_month: list[int],
 ) -> set[int]:
@@ -289,9 +301,9 @@ def main() -> None:
         }
 
         wholesale: dict[str, dict[str, float]] = {}
-        for sku, w_walmart, w_costco, w_wf, w_regional, w_unfi, w_dtc, w_base in cur.execute("""
+        for sku, w_walmart, w_costco, w_wf, w_regional, w_unfi, w_kehe, w_dtc, w_base in cur.execute("""
             SELECT sku, wholesale_walmart, wholesale_costco, wholesale_whole_foods,
-                   wholesale_regional, wholesale_unfi, wholesale_dtc, wholesale_price
+                   wholesale_regional, wholesale_unfi, wholesale_kehe, wholesale_dtc, wholesale_price
             FROM sku_costs
         """).fetchall():
             wholesale[sku] = {
@@ -300,6 +312,7 @@ def main() -> None:
                 "Whole Foods": w_wf,
                 "Regional":    w_regional,
                 "UNFI":        w_unfi,
+                "KeHE":        w_kehe,
                 "DTC":         w_dtc,
                 "_base":       w_base,
             }
@@ -315,7 +328,7 @@ def main() -> None:
                 cat = "Regional"
             else:
                 cat = store_retailer
-            return wholesale[sku].get(cat, wholesale[sku]["_base"])
+            return wholesale[sku].get(cat, wholesale[sku].get("_base", 1.0))
 
         # Per-SKU defect map
         defect_rows = cur.execute("""
@@ -354,10 +367,13 @@ def main() -> None:
             sku_row_counts[sku] += 1
 
         sku_tier = {}
+        n_skus = len(sku_row_counts)
+        n_top = max(1, round(n_skus * 0.20))
+        n_mid = max(1, round(n_skus * 0.50))
         for i, (sku, _) in enumerate(
             sorted(sku_row_counts.items(), key=lambda kv: -kv[1])
         ):
-            sku_tier[sku] = "top" if i < 18 else ("mid" if i < 18 + 45 else "longtail")
+            sku_tier[sku] = "top" if i < n_top else ("mid" if i < n_top + n_mid else "longtail")
 
         for sku in products:
             sku_tier.setdefault(sku, "longtail")
@@ -402,7 +418,7 @@ def main() -> None:
             active_rows = cur.execute(
                 "SELECT rowid FROM distribution_log "
                 "WHERE sku = ? AND deauthorized_date IS NULL "
-                "AND store_id NOT IN ('UNFI-AGG','DTC-AGG')",
+                "AND store_id NOT IN ('UNFI-AGG','KEHE-AGG','DTC-AGG')",
                 (sku,)
             ).fetchall()
             if active_rows:
@@ -427,9 +443,10 @@ def main() -> None:
         for sid, (ret, _vt, is_agg) in stores.items():
             if is_agg:
                 continue
-            cat = ret if ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "DTC") else "Regional"
+            cat = ret if ret in ("Walmart", "Costco", "Whole Foods", "UNFI", "KeHE", "DTC") else "Regional"
             stores_by_cat[cat].append(sid)
         stores_by_cat["UNFI"].append("UNFI-AGG")
+        stores_by_cat["KeHE"].append("KEHE-AGG")
         stores_by_cat["DTC"].append("DTC-AGG")
 
         promo_rows = cur.execute("""
@@ -495,6 +512,7 @@ def main() -> None:
         sku_seasonality_strength = assign_seasonality_strength(rng, products)
         cannibalization_periods = compute_cannibalization(rng, products, sku_launch_week)
         unfi_bulk_weeks = compute_unfi_bulk_weeks(rng)
+        kehe_bulk_weeks = compute_kehe_bulk_weeks(rng)
         dtc_spike_weeks = compute_dtc_spike_weeks(rng, week_month)
         stockout_blocks = compute_stockout_blocks(rng, sku_store_windows, stores)
 
@@ -551,6 +569,8 @@ def main() -> None:
             if is_agg:
                 if sid == "UNFI-AGG":
                     base_per_week = sku_base * UNFI_EQUIVALENT_DOORS
+                elif sid == "KEHE-AGG":
+                    base_per_week = sku_base * KEHE_EQUIVALENT_DOORS
                 else:
                     base_per_week = dtc_weekly_dollars.get(sku, 0.0) / max(ws_price, 1.0)
             else:
@@ -630,6 +650,11 @@ def main() -> None:
                         agg_cycle = rng.uniform(2.2, 2.8)
                     else:
                         agg_cycle = rng.uniform(0.55, 0.80)
+                elif sid == "KEHE-AGG":
+                    if w in kehe_bulk_weeks:
+                        agg_cycle = rng.uniform(2.0, 2.5)
+                    else:
+                        agg_cycle = rng.uniform(0.60, 0.85)
                 elif sid == "DTC-AGG" and w in dtc_spike_weeks:
                     agg_cycle = rng.uniform(2.0, 3.0)
 
@@ -762,7 +787,7 @@ def main() -> None:
                              'Mountain Pantry Co','Southside Grocers')))
                    AND d.week_ending BETWEEN pd.start_week AND pd.end_week) AS promo_avg
             FROM (SELECT DISTINCT promo_id, sku, retailer, start_week, end_week, promo_type FROM promotions) pd
-            WHERE pd.retailer NOT IN ('UNFI', 'DTC')
+            WHERE pd.retailer NOT IN ('UNFI', 'KeHE', 'DTC')
             ORDER BY pd.promo_id LIMIT 10
         """).fetchall()
         for promo_id, sku, ret, ptype, base, on in spot_rows:

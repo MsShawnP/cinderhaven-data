@@ -1,7 +1,7 @@
 """Generate the `orders` and `order_lines` tables.
 
 Seeds purchase orders from each retailer to Cinderhaven across the
-18-month window (Dec 2024 - May 2026). Counts are calibrated so that
+36-month window (Jan 2024 - Jan 2027). Counts are calibrated so that
 total annualized line value lands in the $20-30M range (consistent with
 the base dataset's $25M revenue target).
 
@@ -28,8 +28,8 @@ from shared import DB_PATH
 
 SEED = 42
 
-WINDOW_START = date(2024, 12, 1)
-WINDOW_END   = date(2026, 5, 2)
+WINDOW_START = date(2024, 1, 1)
+WINDOW_END   = date(2027, 1, 2)
 
 # Per-retailer order-generation config:
 #   orders_per_month        — Poisson mean
@@ -68,7 +68,7 @@ COSTS_COL = {
     "costco": "wholesale_costco",
     "whole_foods": "wholesale_whole_foods",
     "unfi": "wholesale_unfi",
-    "kehe": "wholesale_unfi",  # use UNFI pricing as KeHE proxy
+    "kehe": "wholesale_kehe",
     "southside_grocers": "wholesale_regional",
     "green_basket_market": "wholesale_regional",
     "prairie_provisions": "wholesale_regional",

@@ -30,7 +30,7 @@ from shared import DB_PATH
 SEED = 47
 
 # Today / window-end — anything more recent should occasionally still be `pending`.
-TODAY = date(2026, 5, 2)
+TODAY = date(2027, 1, 2)
 
 # Filing rate: % of deductions that get a dispute attempt at all.
 FILING_RATE = {

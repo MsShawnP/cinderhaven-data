@@ -1,13 +1,10 @@
 """Build the Cinderhaven SQLite dataset from scratch.
 
-WARNING: These generation scripts are STALE (2024-era, 90-SKU dataset).
-The current database (50 SKUs, 30 tables, 118 MB) was exported from
-cinderhaven-data-platform Postgres on 2026-05-17. Do NOT use --force
-unless you intend to overwrite the platform data with old generated data.
+Deterministic generation pipeline: seeds RNG with fixed seeds so the
+output is reproducible. Produces a 50-SKU, 157-week dataset matching
+the cinderhaven-data-platform Postgres structure.
 
-To re-sync from platform: fly proxy 5432, then run export_pg_to_sqlite.py.
-
-Legacy behavior: regenerates on demand if the DB is missing. No-op if present.
+Regenerates on demand if the DB is missing. No-op if present.
 
 Order of operations:
   0. Seed `product_master` from scripts/seed_product_master.sql
@@ -74,7 +71,7 @@ PIPELINE = [
 
 
 def seed_product_master() -> None:
-    """Load the 90-row product_master seed from SQL."""
+    """Load the product_master seed from SQL."""
     if not SEED_SQL.exists():
         raise FileNotFoundError(
             f"Seed file missing: {SEED_SQL}. "
@@ -118,15 +115,6 @@ def build(force: bool = False, output: Path | None = None) -> None:
         return
 
     if force and DB_PATH.exists():
-        size_mb = DB_PATH.stat().st_size / (1024 * 1024)
-        if size_mb > 100:
-            print(f"WARNING: Existing DB is {size_mb:.0f} MB (likely a platform export).")
-            print("The generation scripts are stale and will produce an older 90-SKU dataset.")
-            print("To re-sync from platform instead, use export_pg_to_sqlite.py.")
-            resp = input("Overwrite with stale generated data? [y/N] ")
-            if resp.lower() != "y":
-                print("Aborted.")
-                return
         print(f"Removing existing {DB_PATH.name} (--force)...")
         DB_PATH.unlink()
         for sidecar in (DB_PATH.with_suffix(".db-wal"), DB_PATH.with_suffix(".db-shm")):

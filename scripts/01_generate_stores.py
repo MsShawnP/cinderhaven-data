@@ -1,8 +1,8 @@
-"""Generate the `stores` table for the Cinderhaven velocity-tool database.
+"""Generate the `stores` table for the Cinderhaven dataset.
 
-Creates ~1,000 retailer store records plus two aggregated channel rows
-(UNFI and DTC). Volumes, regions and state distributions are intended to
-roughly mirror real US retail footprints.
+Creates ~900 retailer store records plus three aggregated channel rows
+(UNFI, KeHE, and DTC). Volumes, regions and state distributions are
+intended to roughly mirror real US retail footprints.
 """
 
 from __future__ import annotations
@@ -180,6 +180,7 @@ def gen_regional(n=200):
 def gen_aggregated():
     return [
         ("UNFI-AGG", "UNFI", "UNFI", None, None, None, 1),
+        ("KEHE-AGG", "KeHE", "KeHE", None, None, None, 1),
         ("DTC-AGG",  "DTC",  "DTC",  None, None, None, 1),
     ]
 

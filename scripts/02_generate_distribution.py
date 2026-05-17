@@ -17,12 +17,12 @@ from shared import DB_PATH, REGIONAL_CHAIN_NAMES, gtin_invalid, upc_missing
 SEED = 42
 rng = random.Random(SEED)
 
-WEEK_1 = date(2024, 5, 6)
-TOTAL_WEEKS = 104
+WEEK_1 = date(2024, 1, 1)
+TOTAL_WEEKS = 157
 
-# Earliest deauthorization week — guarantees ~3 months of chargeback history
-# (chargebacks start 2024-12) before any SKU is dropped for data-quality issues.
-# WEEK_1 = 2024-05-06; week 44 starts 2025-03-03.
+# Earliest deauthorization week — guarantees ~3 months of sales history
+# before any SKU is dropped for data-quality issues.
+# WEEK_1 = 2024-01-01; week 44 starts 2024-10-28.
 EARLIEST_DEAUTH_WEEK = 44
 
 # Retailer-specific deauthorization aggression:
@@ -181,18 +181,22 @@ def main() -> None:
         ).fetchall():
             stores_by_retailer.setdefault(ret, []).append(sid)
 
-        # --- Tier assignment (90 SKUs total) ---
+        # --- Tier assignment (dynamic based on SKU count) ---
         sku_list = [s for s, _ in products]
+        n_skus = len(sku_list)
+        n_top = max(1, round(n_skus * 0.20))
+        n_mid = max(1, round(n_skus * 0.50))
         shuffled = list(sku_list)
         rng.shuffle(shuffled)
-        top_skus = set(shuffled[:18])         # top performers
-        mid_skus = set(shuffled[18:18 + 45])  # mid-tier
-        long_tail_skus = set(shuffled[18 + 45:])  # long-tail
+        top_skus = set(shuffled[:n_top])
+        mid_skus = set(shuffled[n_top:n_top + n_mid])
+        long_tail_skus = set(shuffled[n_top + n_mid:])
 
-        # --- Newer launches: 9 SKUs, somewhere in the last 40 weeks (weeks 65-100) ---
+        # --- Newer launches: ~20% of SKUs, somewhere in the last 60 weeks ---
+        n_new = max(1, round(n_skus * 0.18))
         new_pool = list(sku_list)
         rng.shuffle(new_pool)
-        new_skus = {sku: rng.randint(65, 100) for sku in new_pool[:9]}
+        new_skus = {sku: rng.randint(90, 140) for sku in new_pool[:n_new]}
 
         # Reverse map: store_id -> retailer category, for retailer-specific deauth math.
         store_retailer = {
@@ -223,9 +227,10 @@ def main() -> None:
             else:
                 coverage = rng.uniform(0.10, 0.30)
 
-            # Aggregated channels: one row per channel, no deauthorization
-            if "UNFI" in tokens:
-                rows.append((sku, "UNFI-AGG", auth_date, None))
+            # Aggregated channels: one row per channel, no deauthorization.
+            # Both distributors carry the full Cinderhaven catalog.
+            rows.append((sku, "UNFI-AGG", auth_date, None))
+            rows.append((sku, "KEHE-AGG", auth_date, None))
             if "DTC" in tokens:
                 rows.append((sku, "DTC-AGG", auth_date, None))
 
@@ -250,7 +255,7 @@ def main() -> None:
 
         physical_rows_by_sku: dict[str, list[int]] = {}
         for i, (sku, sid, _ad, _dd) in enumerate(rows):
-            if sid in ("UNFI-AGG", "DTC-AGG"):
+            if sid in ("UNFI-AGG", "KEHE-AGG", "DTC-AGG"):
                 continue
             physical_rows_by_sku.setdefault(sku, []).append(i)
 
@@ -276,7 +281,7 @@ def main() -> None:
             auth_w = ((auth_d - WEEK_1).days // 7) + 1
             # Need auth + 12 weeks AND chargeback history of 2-3 months.
             min_w = max(auth_w + 12, EARLIEST_DEAUTH_WEEK)
-            max_w = TOTAL_WEEKS - 4  # week 100
+            max_w = TOTAL_WEEKS - 4
             if min_w >= max_w:
                 min_w = max(1, max_w - 4)
             deauth_week = deauth_rng.randint(min_w, max_w)
@@ -367,7 +372,7 @@ def main() -> None:
         print("\nDeauthorization rate by defect severity:")
         bucket_totals: dict[int, list[int]] = {0: [0, 0], 1: [0, 0], 2: [0, 0], 3: [0, 0]}
         for sku, sid, _ad, dd in rows:
-            if sid in ("UNFI-AGG", "DTC-AGG"):
+            if sid in ("UNFI-AGG", "KEHE-AGG", "DTC-AGG"):
                 continue
             dc = sku_defect_count.get(sku, 0)
             b = 0 if dc == 0 else (1 if dc <= 2 else (2 if dc <= 4 else 3))

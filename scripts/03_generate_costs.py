@@ -28,6 +28,7 @@ TRADE_SPEND = {
     "whole_foods": (0.10, 0.15),
     "regional":    (0.08, 0.12),
     "unfi":        (0.12, 0.18),
+    "kehe":        (0.10, 0.16),
     "dtc":         (0.00, 0.00),
 }
 
@@ -41,6 +42,7 @@ WHOLESALE_RETAILER_MULT = {
     "whole_foods": 1.00,  # baseline reference
     "regional":    1.05,
     "unfi":        0.88,
+    "kehe":        0.90,
     "dtc":         1.50,
 }
 
@@ -69,12 +71,14 @@ def main() -> None:
                 wholesale_whole_foods         REAL NOT NULL,
                 wholesale_regional            REAL NOT NULL,
                 wholesale_unfi                REAL NOT NULL,
+                wholesale_kehe                REAL NOT NULL,
                 wholesale_dtc                 REAL NOT NULL,
                 trade_spend_pct_walmart       REAL NOT NULL,
                 trade_spend_pct_costco        REAL NOT NULL,
                 trade_spend_pct_whole_foods   REAL NOT NULL,
                 trade_spend_pct_regional      REAL NOT NULL,
                 trade_spend_pct_unfi          REAL NOT NULL,
+                trade_spend_pct_kehe          REAL NOT NULL,
                 trade_spend_pct_dtc           REAL NOT NULL
             )
         """)
@@ -109,19 +113,19 @@ def main() -> None:
                 landed,
                 wholesale_price,
                 ws["walmart"], ws["costco"], ws["whole_foods"],
-                ws["regional"], ws["unfi"], ws["dtc"],
+                ws["regional"], ws["unfi"], ws["kehe"], ws["dtc"],
                 ts["walmart"], ts["costco"], ts["whole_foods"],
-                ts["regional"], ts["unfi"], ts["dtc"],
+                ts["regional"], ts["unfi"], ts["kehe"], ts["dtc"],
             ))
 
         cur.executemany(
             "INSERT INTO sku_costs ("
             "sku, cogs_per_unit, landed_cost_per_unit, wholesale_price, "
             "wholesale_walmart, wholesale_costco, wholesale_whole_foods, "
-            "wholesale_regional, wholesale_unfi, wholesale_dtc, "
+            "wholesale_regional, wholesale_unfi, wholesale_kehe, wholesale_dtc, "
             "trade_spend_pct_walmart, trade_spend_pct_costco, trade_spend_pct_whole_foods, "
-            "trade_spend_pct_regional, trade_spend_pct_unfi, trade_spend_pct_dtc) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "trade_spend_pct_regional, trade_spend_pct_unfi, trade_spend_pct_kehe, trade_spend_pct_dtc) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
         con.commit()
@@ -149,6 +153,7 @@ def main() -> None:
             ("Whole Foods", "trade_spend_pct_whole_foods"),
             ("Regional",    "trade_spend_pct_regional"),
             ("UNFI",        "trade_spend_pct_unfi"),
+            ("KeHE",        "trade_spend_pct_kehe"),
             ("DTC",         "trade_spend_pct_dtc"),
         ]:
             avg = cur.execute(f"SELECT AVG({col}) FROM sku_costs").fetchone()[0]
@@ -176,6 +181,7 @@ def main() -> None:
             ("Whole Foods", "wholesale_whole_foods"),
             ("Regional",    "wholesale_regional"),
             ("UNFI",        "wholesale_unfi"),
+            ("KeHE",        "wholesale_kehe"),
             ("DTC",         "wholesale_dtc"),
         ]:
             avg = cur.execute(f"SELECT AVG({col}) FROM sku_costs").fetchone()[0]

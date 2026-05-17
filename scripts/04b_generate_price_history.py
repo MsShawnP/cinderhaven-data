@@ -28,6 +28,7 @@ RETAILER_TO_COLUMN = {
     "Costco": "wholesale_costco",
     "Whole Foods": "wholesale_whole_foods",
     "UNFI": "wholesale_unfi",
+    "KeHE": "wholesale_kehe",
     "DTC": "wholesale_dtc",
 }
 # All regional chains share the wholesale_regional price
@@ -52,17 +53,18 @@ def main() -> None:
         # Per-SKU current retailer-specific wholesale prices
         cost_rows = cur.execute("""
             SELECT sku, wholesale_walmart, wholesale_costco, wholesale_whole_foods,
-                   wholesale_regional, wholesale_unfi, wholesale_dtc
+                   wholesale_regional, wholesale_unfi, wholesale_kehe, wholesale_dtc
             FROM sku_costs
         """).fetchall()
         sku_prices: dict[str, dict[str, float]] = {}
-        for sku, w_walmart, w_costco, w_wf, w_regional, w_unfi, w_dtc in cost_rows:
+        for sku, w_walmart, w_costco, w_wf, w_regional, w_unfi, w_kehe, w_dtc in cost_rows:
             sku_prices[sku] = {
                 "Walmart": w_walmart,
                 "Costco": w_costco,
                 "Whole Foods": w_wf,
                 "Regional": w_regional,
                 "UNFI": w_unfi,
+                "KeHE": w_kehe,
                 "DTC": w_dtc,
             }
 
@@ -86,7 +88,7 @@ def main() -> None:
 
         # Cap effective_date at the end of the scan-data window. Prices effective
         # past that date are speculative future data we don't model elsewhere.
-        DATA_WINDOW_END = date(2026, 5, 2)
+        DATA_WINDOW_END = date(2027, 1, 2)
 
         def emit_retailers_for(cat: str) -> list[str]:
             # "Regional" is a category aggregating 5 chains; expand to 5 chain

@@ -24,9 +24,9 @@ from shared import DB_PATH, gtin_invalid, upc_missing
 
 SEED = 42
 
-# Chargeback window: 18 months ending 2026-05 (matches the prior table).
-START_YEAR_MONTH = (2024, 12)
-END_YEAR_MONTH = (2026, 5)
+# Chargeback window: 36 months ending 2027-01 (matches scan data window).
+START_YEAR_MONTH = (2024, 1)
+END_YEAR_MONTH = (2027, 1)
 
 
 def months_in_window() -> list[str]:

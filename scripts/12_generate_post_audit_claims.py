@@ -31,7 +31,7 @@ from shared import DB_PATH
 
 SEED = 48
 
-DATE_CAP = date(2026, 5, 2)
+DATE_CAP = date(2027, 1, 2)
 
 # Per-retailer audit profile.
 #   audits: number of distinct audit events to seed
@@ -115,13 +115,13 @@ def main() -> None:
             for _ in range(profile["audits"]):
                 # Audit period: 6-12 months wide, ending 12-30 months before now
                 audit_period_end_offset = rng.randint(*profile["lookback_months_range"])
-                audit_period_end = date(2026, 5, 1) - timedelta(days=audit_period_end_offset * 30)
+                audit_period_end = date(2027, 1, 1) - timedelta(days=audit_period_end_offset * 30)
                 period_width = rng.randint(180, 365)
                 audit_period_start = audit_period_end - timedelta(days=period_width)
 
                 # The post-audit deductions hit Cinderhaven in 2026 (recent)
-                # Spread across Jan-May 2026
-                audit_hit_month = rng.randint(1, 5)
+                # Spread across Jun-Dec 2026
+                audit_hit_month = rng.randint(6, 12)
                 audit_hit_day = rng.randint(1, 28)
                 audit_hit_date = date(2026, audit_hit_month, audit_hit_day)
 

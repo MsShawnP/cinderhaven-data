@@ -14,23 +14,23 @@ from datetime import date
 from shared import DB_PATH
 
 TARGETS = {
-    "orders":            (4000, 6500),
-    "order_lines":       (15000, 35000),
-    "shipments":         (4000, 6500),
-    "pack_records":      (4000, 6500),
-    "deductions":        (3000, 6000),
-    "remittances":       (200, 700),
-    "disputes":          (1500, 3600),
-    "dispute_evidence":  (3000, 10000),
-    "post_audit_claims": (30, 80),
+    "orders":            (9000, 14000),
+    "order_lines":       (35000, 70000),
+    "shipments":         (9000, 14000),
+    "pack_records":      (9000, 14000),
+    "deductions":        (10000, 16000),
+    "remittances":       (400, 1400),
+    "disputes":          (4000, 8000),
+    "dispute_evidence":  (8000, 25000),
+    "post_audit_claims": (30, 100),
     "retailers":         (10, 12),
-    "retailer_rules":    (80, 100),
-    "deduction_codes":   (70, 100),
+    "retailer_rules":    (80, 120),
+    "deduction_codes":   (70, 120),
     "edi_requirements":  (30, 50),
 }
 
 ANNUAL_DOLLAR_TARGET = (750_000, 1_200_000)
-SCAN_DATA_END = date(2026, 5, 2)
+SCAN_DATA_END = date(2027, 1, 2)
 
 
 class Reporter:
@@ -163,7 +163,8 @@ def main() -> int:
         # ===== Revenue still ~$25M =====
         print("\nBase dataset integrity:")
         total_rev = cur.execute("SELECT SUM(dollars_sold) FROM scan_data").fetchone()[0] or 0
-        annual_rev = total_rev / 2
+        n_weeks = cur.execute("SELECT COUNT(DISTINCT week_ending) FROM scan_data").fetchone()[0] or 1
+        annual_rev = total_rev * 52 / n_weeks
         if in_range(annual_rev, 23_000_000, 27_000_000):
             rep.passed(f"Annual wholesale revenue ${annual_rev:,.0f} still in target $23M-$27M")
         else:

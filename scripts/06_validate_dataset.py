@@ -12,12 +12,12 @@ import statistics
 from shared import DB_PATH, REGIONAL_CHAIN_NAMES
 
 EXPECTED_COUNTS = {
-    "product_master":   (90, 90),
-    "stores":           (895, 910),
-    "distribution_log": (12_000, 13_500),
-    "sku_costs":        (90, 90),
-    "promotions":       (90, 250),    # SKU-level rows (line promos + regional expansion)
-    "scan_data":        (900_000, 1_400_000),
+    "product_master":   (50, 50),
+    "stores":           (900, 910),
+    "distribution_log": (6_000, 9_000),
+    "sku_costs":        (50, 50),
+    "promotions":       (50, 200),
+    "scan_data":        (500_000, 1_200_000),
 }
 
 REGIONAL_CHAINS_SQL = "(" + ",".join(f"'{c}'" for c in sorted(REGIONAL_CHAIN_NAMES)) + ")"
@@ -113,11 +113,12 @@ def main() -> None:
 
         # --- 4. Annualized wholesale revenue ---
         section(4, "Annualized wholesale revenue")
-        total_2yr = cur.execute("SELECT SUM(dollars_sold) FROM scan_data").fetchone()[0] or 0
-        annual = total_2yr / 2
+        total_all = cur.execute("SELECT SUM(dollars_sold) FROM scan_data").fetchone()[0] or 0
+        n_weeks = cur.execute("SELECT COUNT(DISTINCT week_ending) FROM scan_data").fetchone()[0] or 1
+        annual = total_all * 52 / n_weeks
         emit(f"Annual wholesale revenue: ${annual:,.0f}  (target $23M-$27M)",
              23_000_000 <= annual <= 27_000_000)
-        print(f"         2-year total: ${total_2yr:,.0f}")
+        print(f"         {n_weeks}-week total: ${total_all:,.0f}")
 
         # --- 5. Velocity distribution ---
         section(5, "Velocity distribution (avg units/week per SKU x store)")
@@ -231,7 +232,7 @@ def main() -> None:
                        THEN d.units_sold END)
             FROM scan_data d
             JOIN launches l ON d.sku = l.sku
-            WHERE l.launch_date > '2024-05-06'
+            WHERE l.launch_date > '2024-01-06'
         """).fetchone()
         if early and late:
             print(f"  Weeks 1-4 avg : {early:>10.2f}")
@@ -255,7 +256,7 @@ def main() -> None:
                        THEN d.units_sold END)
             FROM scan_data d
             JOIN launches l ON d.sku = l.sku
-            WHERE l.launch_date > '2024-05-06' AND l.any_deauth = 0
+            WHERE l.launch_date > '2024-01-06' AND l.any_deauth = 0
         """).fetchone()
         if healthy[0] and healthy[1]:
             print(f"  (excluding failed launches)  weeks 1-4: {healthy[0]:.2f}  week 13+: {healthy[1]:.2f}  "
