@@ -84,11 +84,10 @@ KEHE_EQUIVALENT_DOORS = 50
 DTC_ANNUAL_REVENUE = 800_000
 
 # Global multiplier on per-SKU base velocities to land total wholesale revenue
-# at ~$23-27M/yr (Cinderhaven's actual scale). Scales physical retail and UNFI
+# at ~$23-27M/yr (Cinderhaven's actual scale). Scales physical retail and UNFI/KeHE
 # proportionally; DTC is driven by DTC_ANNUAL_REVENUE and is unaffected.
-# Bumped from 0.62 to 0.66 to offset the ~5% revenue reduction from the
-# retailer-specific wholesale prices added to sku_costs.
-VELOCITY_SCALE = 0.66
+# Recalibrated for 50-SKU catalog (was 0.66 for 90 SKUs).
+VELOCITY_SCALE = 1.21
 
 
 def date_to_week(d_str):

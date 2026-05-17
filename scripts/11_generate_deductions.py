@@ -60,13 +60,13 @@ PROFILES = {
     "walmart": {
         "short_ship_real":         0.85,   # of bol-short or pick-mismatch
         "short_ship_perceived":    0.45,   # of non-scannable-label orders
-        "label_fine":              0.22,   # of generic-label orders (sampled)
+        "label_fine":              0.25,   # of generic-label orders (sampled)
         "pallet_fine":             0.04,
         "damaged":                 0.85,   # of bol-damaged
         "late_delivery_window":    0.55,   # of orders that missed window
-        "promo_billback":          0.09,
-        "vague":                   0.04,
-        "spoilage":                0.035,
+        "promo_billback":          0.14,
+        "vague":                   0.06,
+        "spoilage":                0.05,
         "slotting_events":         3,
         "slotting_amount_range":   (5500, 13000),
         "remittance_lag":          (28, 42),
@@ -78,9 +78,9 @@ PROFILES = {
         "pallet_fine":             0.06,
         "damaged":                 0.85,
         "late_delivery_window":    0.50,
-        "promo_billback":          0.04,
-        "vague":                   0.03,
-        "spoilage":                0.030,
+        "promo_billback":          0.08,
+        "vague":                   0.05,
+        "spoilage":                0.045,
         "slotting_events":         3,
         "slotting_amount_range":   (8000, 18000),
         "remittance_lag":          (30, 45),
@@ -92,9 +92,9 @@ PROFILES = {
         "pallet_fine":             0.02,
         "damaged":                 0.70,
         "late_delivery_window":    0.30,
-        "promo_billback":          0.05,
-        "vague":                   0.05,
-        "spoilage":                0.035,  # strict quality program
+        "promo_billback":          0.10,
+        "vague":                   0.07,
+        "spoilage":                0.05,
         "slotting_events":         4,
         "slotting_amount_range":   (3000, 6500),
         "remittance_lag":          (21, 35)
@@ -106,9 +106,9 @@ PROFILES = {
         "pallet_fine":             0.02,
         "damaged":                 0.65,
         "late_delivery_window":    0.30,
-        "promo_billback":          0.14,   # MCB-heavy
-        "vague":                   0.08,
-        "spoilage":                0.035,  # unsaleables on natural side
+        "promo_billback":          0.18,   # MCB-heavy
+        "vague":                   0.10,
+        "spoilage":                0.05,
         "slotting_events":         5,
         "slotting_amount_range":   (2000, 4500),
         "remittance_lag":          (7, 21),  # weekly cadence
@@ -120,9 +120,9 @@ PROFILES = {
         "pallet_fine":             0.02,
         "damaged":                 0.80,
         "late_delivery_window":    0.30,
-        "promo_billback":          0.14,
-        "vague":                   0.08,
-        "spoilage":                0.030,
+        "promo_billback":          0.18,
+        "vague":                   0.10,
+        "spoilage":                0.04,
         "slotting_events":         5,
         "slotting_amount_range":   (1500, 3500),
         "remittance_lag":          (10, 21),  # biweekly
@@ -134,9 +134,9 @@ PROFILES = {
         "pallet_fine":             0.01,
         "damaged":                 0.55,
         "late_delivery_window":    0.20,
-        "promo_billback":          0.04,
-        "vague":                   0.04,
-        "spoilage":                0.015,
+        "promo_billback":          0.08,
+        "vague":                   0.06,
+        "spoilage":                0.03,
         "slotting_events":         2,
         "slotting_amount_range":   (500, 1300),
         "remittance_lag":          (21, 40),
@@ -148,9 +148,9 @@ PROFILES = {
         "pallet_fine":             0.01,
         "damaged":                 0.55,
         "late_delivery_window":    0.25,
-        "promo_billback":          0.10,   # Free Fill / Fair Share
-        "vague":                   0.05,
-        "spoilage":                0.018,
+        "promo_billback":          0.14,   # Free Fill / Fair Share
+        "vague":                   0.07,
+        "spoilage":                0.03,
         "slotting_events":         3,
         "slotting_amount_range":   (400, 1100),
         "remittance_lag":          (21, 40),
