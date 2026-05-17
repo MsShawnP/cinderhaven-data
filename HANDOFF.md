@@ -1,25 +1,26 @@
 # Handoff — cinderhaven-data
 
-**Last updated:** 2026-05-16
-**Status:** Complete. No pending work.
+**Last updated:** 2026-05-17
+**Status:** Build passing (33 PASS / 4 WARN / 0 FAIL). Minor calibration gap on deductions.
 
-## What was done
+## 2026-05-17 17:00
 
-Full 4-phase project audit + all 8 remediation moves:
+**Started from:** "DO 1" — rewrite generation scripts for 50-SKU, 157-week, 7-channel dataset matching platform export.
 
-- **PR #2** (merged): Extract `shared.py`, update README, add `pyproject.toml` + ruff
-- **PR #3** (merged): Context managers, CLAUDE.md, instance RNG, scan_data refactor, type annotations
+**Did:** Rewrote 14/18 scripts. Added KeHE channel. Changed date window to 157 weeks (2024-01-01 → 2027-01-02). Dynamic tier assignment. Calibrated VELOCITY_SCALE (0.66→1.21) and bumped deduction rates. Two commits: structural changes + calibration fixes.
 
-## Current state
+**State:** Build passes at 130 MB. Revenue $24.3M (target $23-27M). Deductions 7,973 (WARN, target 10-16K). Disputes 3,580 (WARN, target 4-8K). Two untracked planning artifacts to clean up. Branch `main`, 2 commits ahead of origin.
 
-- All 18 scripts pass `ruff check`
-- `python scripts/build_db.py --force` produces a valid 164MB database
-- 59/59 validation checks pass (24 base + 35 deduction)
-- CLAUDE.md documents conventions for future sessions
-- AUDIT.md contains the full 4-phase audit with landscape analysis
+**Next:** Either widen deduction/dispute target ranges in `15_validate_deductions.py` to reflect 50-SKU reality, or do a third calibration pass. Clean up untracked files (`cinderhaven-data-consistency-plan.md`, `cinderhaven_product_master.db`).
 
-## What's next
+---
 
-Nothing for this repo. The audit's "What NOT to Do" section explicitly rules out further investment (no API, no config layer, no incremental generation). The repo is a Quick-tier seed generator — it's done.
+## 2026-05-16
 
-If future work arises, it would likely be driven by schema changes in `cinderhaven-data-platform` requiring corresponding updates here.
+**Started from:** Fresh audit of the repo.
+
+**Did:** Full 4-phase project audit + all 8 remediation moves (PR #2, PR #3 merged).
+
+**State:** All 18 scripts lint-clean, pipeline produces valid 164MB database, 59/59 validation checks pass.
+
+**Next:** Driven by platform schema changes if they arise.

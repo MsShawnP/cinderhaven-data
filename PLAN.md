@@ -1,8 +1,8 @@
 # PLAN — cinderhaven-data
 
 **Tier:** Quick
-**Status:** Complete
-**Current focus:** None — all audit moves shipped
+**Status:** Complete (minor WARN on deduction volume)
+**Current focus:** None — dataset rewrite shipped, build passing
 
 ---
 

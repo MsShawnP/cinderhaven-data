@@ -1,5 +1,13 @@
 # Decisions — cinderhaven-data
 
+## 2026-05-17 — Dataset shape: 50 SKUs, 157 weeks, 7 channels (including KeHE)
+
+- **Why:** Platform (cinderhaven-data-platform) is the source of truth; SQLite seed must match its schema exactly. 50 SKUs is the curated catalog; 157 weeks covers the full Jan 2024 – Jan 2027 window; KeHE added as a distinct distributor channel.
+- **Scope:** All generation scripts, validation targets, downstream consumers
+- **Do not:** Revert to 90 SKUs or 104-week window. Do not merge KeHE back into UNFI — they have distinct wholesale pricing and order cycles.
+
+---
+
 ## 2026-05-16: Completed full project audit and all 8 remediation moves
 
 **Context:** Ran a 4-phase audit (baseline, internal review, landscape scan, differentiation) to retroactively apply quality standards to a pre-workflow codebase.
