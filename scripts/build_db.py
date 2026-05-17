@@ -1,8 +1,13 @@
 """Build the Cinderhaven SQLite dataset from scratch.
 
-The synthetic dataset is too large to commit to GitHub, so this script
-regenerates it on demand. Runs once on first deploy (or whenever the DB
-file is missing) and is a no-op on subsequent boots.
+WARNING: These generation scripts are STALE (2024-era, 90-SKU dataset).
+The current database (50 SKUs, 30 tables, 118 MB) was exported from
+cinderhaven-data-platform Postgres on 2026-05-17. Do NOT use --force
+unless you intend to overwrite the platform data with old generated data.
+
+To re-sync from platform: fly proxy 5432, then run export_pg_to_sqlite.py.
+
+Legacy behavior: regenerates on demand if the DB is missing. No-op if present.
 
 Order of operations:
   0. Seed `product_master` from scripts/seed_product_master.sql
@@ -113,6 +118,15 @@ def build(force: bool = False, output: Path | None = None) -> None:
         return
 
     if force and DB_PATH.exists():
+        size_mb = DB_PATH.stat().st_size / (1024 * 1024)
+        if size_mb > 100:
+            print(f"WARNING: Existing DB is {size_mb:.0f} MB (likely a platform export).")
+            print("The generation scripts are stale and will produce an older 90-SKU dataset.")
+            print("To re-sync from platform instead, use export_pg_to_sqlite.py.")
+            resp = input("Overwrite with stale generated data? [y/N] ")
+            if resp.lower() != "y":
+                print("Aborted.")
+                return
         print(f"Removing existing {DB_PATH.name} (--force)...")
         DB_PATH.unlink()
         for sidecar in (DB_PATH.with_suffix(".db-wal"), DB_PATH.with_suffix(".db-shm")):
